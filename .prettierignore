@@ -1,0 +1,6 @@
+pnpm-lock.yaml
+dist
+.next
+coverage
+apps/api/drizzle/meta
+next-env.d.ts

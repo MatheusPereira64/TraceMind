@@ -1,0 +1,46 @@
+# Infrastructure only, for running the API and dashboard on the host with hot reload:
+#
+#   docker compose -f docker-compose.dev.yml up -d
+#   pnpm install && pnpm db:migrate && pnpm dev
+
+name: tracemind-dev
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: tracemind
+      POSTGRES_PASSWORD: tracemind
+      POSTGRES_DB: tracemind
+    volumes:
+      - postgres-dev-data:/var/lib/postgresql/data
+      - ./infrastructure/postgres/init-test-db.sql:/docker-entrypoint-initdb.d/10-test-db.sql:ro
+    ports:
+      - '127.0.0.1:5432:5432'
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U tracemind -d tracemind']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - '127.0.0.1:6379:6379'
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.154.0
+    command: ['--config=/etc/otelcol/config.yaml']
+    volumes:
+      - ./infrastructure/otel-collector/config.yaml:/etc/otelcol/config.yaml:ro
+    ports:
+      - '4317:4317'
+      - '4318:4318'
+
+volumes:
+  postgres-dev-data:
