@@ -13,6 +13,7 @@ import {
   createProjectSchema,
   updateProjectSchema,
   type CreateProjectInput,
+  type IngestionStatusDto,
   type ProjectDto,
   type UpdateProjectInput,
 } from '@tracemind/shared';
@@ -68,5 +69,13 @@ export class ProjectsController {
     @Param('projectId', uuid) projectId: string,
   ): Promise<ProjectDto> {
     return this.projects.archive(user.id, projectId);
+  }
+
+  @Get('projects/:projectId/ingestion')
+  ingestion(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('projectId', uuid) projectId: string,
+  ): Promise<IngestionStatusDto> {
+    return this.projects.ingestionStatus(user.id, projectId);
   }
 }

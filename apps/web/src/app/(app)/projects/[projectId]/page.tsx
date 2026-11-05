@@ -6,6 +6,8 @@ import Link from 'next/link';
 import { use, useState, type ReactNode } from 'react';
 import { ApiKeysPanel } from '@/components/api-keys-panel';
 import { PageHeader } from '@/components/app-shell';
+import { IngestionPanel } from '@/components/ingestion-panel';
+import { RedactionPanel } from '@/components/redaction-panel';
 import { useOrganization } from '@/components/organization-context';
 import { Button } from '@/components/ui/button';
 import { Badge, Card, CardHeader } from '@/components/ui/card';
@@ -97,7 +99,15 @@ export default function ProjectPage({ params }: { params: Promise<{ projectId: s
           </dl>
         </Card>
 
+        <IngestionPanel projectId={data.id} />
+
         <ApiKeysPanel projectId={data.id} role={role} archived={archived} />
+
+        <RedactionPanel
+          projectId={data.id}
+          settings={data.redaction}
+          canEdit={hasRoleAtLeast(role, 'admin') && !archived}
+        />
 
         {hasRoleAtLeast(role, 'admin') && !archived ? (
           <Card className="border-danger/30">

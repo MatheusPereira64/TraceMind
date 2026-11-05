@@ -48,3 +48,27 @@ export async function registerUser(
 }
 
 export const bearer = (token: string) => ({ Authorization: `Bearer ${token}` });
+
+/** Registers a user and creates a project with an API key for ingestion tests. */
+export async function setupProjectWithKey(
+  app: NestExpressApplication,
+  environment: 'development' | 'staging' | 'production' = 'production',
+) {
+  const owner = await registerUser(app);
+  const organizationId = owner.organizations[0]!.id;
+  const project = (
+    await request(app.getHttpServer())
+      .post(`/v1/organizations/${organizationId}/projects`)
+      .set(bearer(owner.accessToken))
+      .send({ name: `Project ${randomUUID().slice(0, 6)}` })
+      .expect(201)
+  ).body as { id: string };
+  const key = (
+    await request(app.getHttpServer())
+      .post(`/v1/projects/${project.id}/api-keys`)
+      .set(bearer(owner.accessToken))
+      .send({ name: 'ingest', environment })
+      .expect(201)
+  ).body as { key: string };
+  return { owner, projectId: project.id, organizationId, key: key.key };
+}

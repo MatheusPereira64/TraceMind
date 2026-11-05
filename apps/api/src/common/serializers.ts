@@ -39,6 +39,7 @@ export function toProjectDto(project: Project): ProjectDto {
     slug: project.slug,
     description: project.description,
     retentionDays: project.retentionDays,
+    redaction: project.redaction,
     isDemo: project.isDemo,
     createdAt: project.createdAt.toISOString(),
     archivedAt: iso(project.archivedAt),

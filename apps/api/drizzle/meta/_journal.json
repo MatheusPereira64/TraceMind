@@ -15,6 +15,13 @@
       "when": 1793885784815,
       "tag": "0001_seed_model_providers",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1793894158084,
+      "tag": "0002_ingestion",
+      "breakpoints": true
     }
   ]
 }

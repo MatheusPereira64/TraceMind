@@ -1,8 +1,11 @@
 # OpenTelemetry Collector for TraceMind.
 #
-# Phase 1: receives OTLP from applications and from the TraceMind API itself, batches it and
-# logs a summary. Phase 2 adds an otlphttp exporter that forwards GenAI spans to the TraceMind
-# ingestion endpoint (POST /v1/ingest/otlp/v1/traces) authenticated with a project API key.
+# Receives OTLP (gRPC 4317 / HTTP 4318) from instrumented applications and forwards traces to the
+# TraceMind ingestion endpoint as OTLP/HTTP JSON, authenticated with a project API key:
+#
+#   TRACEMIND_COLLECTOR_API_KEY  API key of the project that should receive the traces (required
+#                                for forwarding; without it the export fails with 401 and is logged)
+#   TRACEMIND_INGEST_URL         API base URL as seen from the collector container
 
 receivers:
   otlp:
@@ -24,6 +27,14 @@ processors:
 exporters:
   debug:
     verbosity: basic
+  otlphttp/tracemind:
+    traces_endpoint: ${env:TRACEMIND_INGEST_URL}/v1/ingest/otlp/v1/traces
+    # TraceMind accepts the JSON encoding of OTLP/HTTP.
+    encoding: json
+    headers:
+      Authorization: Bearer ${env:TRACEMIND_COLLECTOR_API_KEY}
+    retry_on_failure:
+      enabled: true
 
 extensions:
   health_check:
@@ -35,7 +46,7 @@ service:
     traces:
       receivers: [otlp]
       processors: [memory_limiter, batch]
-      exporters: [debug]
+      exporters: [debug, otlphttp/tracemind]
     metrics:
       receivers: [otlp]
       processors: [memory_limiter, batch]

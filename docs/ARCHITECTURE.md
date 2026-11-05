@@ -9,7 +9,7 @@ raw data and derives cost, latency and quality analytics from it.
 - [3. Data model](#3-data-model)
 - [4. Security model](#4-security-model)
 - [5. REST API contracts](#5-rest-api-contracts)
-- [6. Ingestion design (Phase 2)](#6-ingestion-design-phase-2)
+- [6. Ingestion pipeline](#6-ingestion-pipeline)
 - [7. Analytics design (Phase 3)](#7-analytics-design-phase-3)
 - [8. Delivery plan](#8-delivery-plan)
 - [9. Decision records](#9-decision-records)
@@ -30,15 +30,15 @@ flowchart LR
   R -. queue .-> W[Ingestion workers] --> PG
 ```
 
-| Component                  | Responsibility                                                                   |
-| -------------------------- | -------------------------------------------------------------------------------- |
-| `apps/api` (NestJS)        | Authentication, tenancy, API keys, ingestion endpoints, analytics queries.       |
-| `apps/web` (Next.js)       | Dashboard. Talks to the API through a same-origin route handler (`/api/*`).      |
-| `packages/shared`          | Domain enums, Zod schemas and response contracts used by API, dashboard and SDK. |
-| `packages/sdk` _(Phase 2)_ | TypeScript SDK that batches and sends telemetry.                                 |
-| PostgreSQL                 | System of record: raw traces/spans and everything derived from them.             |
-| Redis                      | Rate-limit state, ingestion queue and short-lived analytics cache (Phase 2+).    |
-| OTel Collector             | Accepts OTLP from apps that already use OpenTelemetry and forwards to the API.   |
+| Component            | Responsibility                                                                   |
+| -------------------- | -------------------------------------------------------------------------------- |
+| `apps/api` (NestJS)  | Authentication, tenancy, API keys, ingestion endpoints, analytics queries.       |
+| `apps/web` (Next.js) | Dashboard. Talks to the API through a same-origin route handler (`/api/*`).      |
+| `packages/shared`    | Domain enums, Zod schemas and response contracts used by API, dashboard and SDK. |
+| `packages/sdk`       | Zero-dependency TypeScript SDK: traces, nested spans, OpenAI wrapper, feedback.  |
+| PostgreSQL           | System of record: raw traces/spans and everything derived from them.             |
+| Redis                | BullMQ ingestion queue; later, short-lived analytics cache.                      |
+| OTel Collector       | Accepts OTLP from apps that already use OpenTelemetry and forwards to the API.   |
 
 **Guiding decision — keep raw telemetry.** Aggregates are always computed from preserved traces and
 spans, never stored as the only copy. Costs can be recomputed after a price correction, new metrics can
@@ -109,7 +109,7 @@ erDiagram
 | `model_providers`, `model_pricing`      | Versioned price list with `[effective_from, effective_to)`; costs resolve against the price valid at span start.                                                |
 | `errors`                                | Classified (`rate_limit`, `timeout`, `provider_error`, …), linked to trace and span.                                                                            |
 | `evaluations`                           | Thumbs/numeric/categorical, `source` = `human`/`api`/`llm_judge` (prepared for LLM-as-a-judge).                                                                 |
-| `ingestion_failures`                    | Dead-letter for payloads that could not be processed, kept for inspection.                                                                                      |
+| `ingestion_failures`                    | Rejected events and batches that exhausted retries, with the reason (redacted payload), shown in the dashboard.                                                 |
 
 **Retention & scale.** A scheduled job (Phase 5) deletes telemetry older than each project's
 `retention_days`. Time-range indexes cover the dashboard queries for the expected MVP volume; if a
@@ -128,7 +128,7 @@ month without changing the API (deferred deliberately — see ADR-005).
 | Abuse            | Global rate limit plus a stricter limit on credential endpoints; 5 MB JSON body cap; Helmet headers; strict CORS allow-list with credentials.                                                                                               |
 | Validation       | One set of Zod schemas (`@tracemind/shared`) validates input on both API and dashboard.                                                                                                                                                     |
 | Errors & logs    | Uniform error body with `requestId`; internals never leak on 5xx. Structured pino logs with authorization headers, cookies and API keys redacted.                                                                                           |
-| Sensitive data   | Phase 2 adds configurable redaction of prompts/completions before persistence. Provider keys are never accepted or stored.                                                                                                                  |
+| Sensitive data   | Prompts, completions and metadata are masked before they are queued or stored (secrets always; emails, phones and custom literal terms per project). Provider keys are never accepted or stored.                                            |
 
 ## 5. REST API contracts
 
@@ -144,7 +144,7 @@ Base path `/v1`. Request/response types live in `packages/shared/src/contracts.t
 }
 ```
 
-### Implemented (Phase 1)
+### Implemented
 
 | Method & path                                    | Auth    | Role   | Description                                               |
 | ------------------------------------------------ | ------- | ------ | --------------------------------------------------------- |
@@ -157,36 +157,63 @@ Base path `/v1`. Request/response types live in `packages/shared/src/contracts.t
 | `GET /v1/organizations/:orgId/projects`          | session | viewer | `?includeArchived=true` to include archived.              |
 | `POST /v1/organizations/:orgId/projects`         | session | admin  | Slug derived from name when omitted.                      |
 | `GET /v1/projects/:projectId`                    | session | viewer |                                                           |
-| `PATCH /v1/projects/:projectId`                  | session | admin  | `name`, `description`, `retentionDays`.                   |
+| `PATCH /v1/projects/:projectId`                  | session | admin  | `name`, `description`, `retentionDays`, `redaction`.      |
+| `GET /v1/projects/:projectId/ingestion`          | session | viewer | Trace/span counts, last received, recent failures.        |
 | `DELETE /v1/projects/:projectId`                 | session | admin  | Soft archive; keys stop working.                          |
 | `GET /v1/projects/:projectId/api-keys`           | session | viewer | Never includes secrets.                                   |
 | `POST /v1/projects/:projectId/api-keys`          | session | admin  | Returns `key` once.                                       |
 | `DELETE /v1/projects/:projectId/api-keys/:keyId` | session | admin  | Revokes (idempotent).                                     |
 | `GET /v1/ingest/whoami`                          | API key | —      | Lets SDKs validate configuration.                         |
+| `POST /v1/ingest/batch`                          | API key | —      | Up to 1000 trace/span/evaluation events → `202`.          |
+| `POST /v1/ingest/otlp/v1/traces`                 | API key | —      | OTLP/HTTP JSON with GenAI semantic conventions.           |
 | `GET /health`, `GET /health/ready`               | —       | —      | Liveness; readiness checks Postgres and Redis.            |
 
 ### Planned
 
-| Phase | Endpoints                                                                                                                                                                                    |
-| ----- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 2     | `POST /v1/ingest/batch` (traces, spans, usage, errors in one idempotent batch), `POST /v1/ingest/otlp/v1/traces` (OTLP/HTTP JSON, GenAI semantic conventions), `POST /v1/ingest/evaluations` |
-| 3     | `GET /v1/projects/:id/metrics/overview`, `/metrics/timeseries`, `/costs/breakdown`, `/errors` — all accept `from`, `to`, `environment`, `provider`, `model`                                  |
-| 4     | `GET /v1/projects/:id/traces` (cursor pagination, search), `GET /v1/traces/:id` (span tree), `POST /v1/traces/:id/evaluations`                                                               |
-| 5     | Members & invitations, pricing administration, OpenAPI document generated from the Zod schemas                                                                                               |
+| Phase | Endpoints                                                                                                                                                   |
+| ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 3     | `GET /v1/projects/:id/metrics/overview`, `/metrics/timeseries`, `/costs/breakdown`, `/errors` — all accept `from`, `to`, `environment`, `provider`, `model` |
+| 4     | `GET /v1/projects/:id/traces` (cursor pagination, search), `GET /v1/traces/:id` (span tree), `POST /v1/traces/:id/evaluations`                              |
+| 5     | Members & invitations, pricing administration, OpenAPI document generated from the Zod schemas                                                              |
 
-## 6. Ingestion design (Phase 2)
+## 6. Ingestion pipeline
 
-1. **Accept fast.** `POST /v1/ingest/batch` authenticates the key, validates the envelope with Zod and
-   enqueues the batch in Redis (BullMQ), returning `202` with per-item acceptance. Malformed items are
-   rejected individually instead of failing the whole batch.
-2. **Process idempotently.** Workers upsert by `(project_id, external_id)`, so SDK retries and
-   out-of-order span/trace delivery are safe. Token cost is resolved against `model_pricing` at the
-   span's start time.
-3. **Fail visibly.** Items that exhaust retries are written to `ingestion_failures` with the reason.
-4. **Redact before persisting.** Configurable patterns (API keys, emails, card numbers, custom regex)
-   are applied to prompts, completions and metadata.
-5. **OpenTelemetry.** The OTLP endpoint maps `gen_ai.*` attributes (system, request.model,
-   usage.input_tokens/output_tokens) into spans and token usage.
+Full rationale in [ADR-006](./adr/006-ingestion-pipeline.md).
+
+```
+SDK / OTel Collector → API: validate each event · redact · enqueue (202) → Redis/BullMQ → worker: upsert in one transaction → PostgreSQL
+```
+
+**Event contract** (`packages/shared/src/ingestion.ts`): `trace`, `span` and `evaluation` events,
+each keyed by a client id. Events are partial upserts — a span can be sent when it starts and again
+when it ends; omitted fields keep their stored values.
+
+```json
+{
+  "events": [
+    { "type": "trace", "id": "t-1", "name": "customer-support", "userId": "u-42", "startTime": "…" },
+    { "type": "span", "id": "s-1", "traceId": "t-1", "parentId": "s-0", "kind": "llm",
+      "provider": "openai", "model": "gpt-4.1", "input": [...], "output": {...},
+      "usage": { "inputTokens": 812, "outputTokens": 96, "cachedInputTokens": 512 },
+      "startTime": "…", "endTime": "…" },
+    { "type": "evaluation", "traceId": "t-1", "criterion": "user_feedback", "kind": "thumbs", "score": 1 }
+  ]
+}
+```
+
+Response: `202 { "batchId": "…", "accepted": 2, "rejected": [{ "index": 2, "issues": [...] }] }`.
+
+| Concern            | Behaviour                                                                                                                                                                                                                                                          |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Partial failure    | Invalid events are rejected individually and stored in `ingestion_failures`; valid ones proceed.                                                                                                                                                                   |
+| Retries            | Every write is an upsert, so SDK and queue retries converge to the same state.                                                                                                                                                                                     |
+| Ordering           | Spans may precede their trace (placeholder trace) or parent (`parent_external_id` resolved later).                                                                                                                                                                 |
+| Cost               | Estimated with exact integer arithmetic from the price valid at span start; reported cost kept apart.                                                                                                                                                              |
+| Transient failures | 6 queue attempts with exponential backoff, then dead letter in `ingestion_failures`.                                                                                                                                                                               |
+| Overload           | `503` when the backlog exceeds `INGESTION_MAX_QUEUED_BATCHES`; the SDK backs off and retries.                                                                                                                                                                      |
+| Rate limit         | Per API key (`INGEST_RATE_LIMIT_PER_MINUTE`), independent of the dashboard's per-IP limit.                                                                                                                                                                         |
+| Redaction          | Before enqueueing: provider/TraceMind keys, bearer tokens, JWTs, private keys, Luhn-valid card numbers, sensitive field names; emails/phones and literal terms per project. Strings over 100 000 characters are truncated.                                         |
+| OTLP               | `gen_ai.provider.name`/`gen_ai.system`, `gen_ai.request/response.model`, `gen_ai.usage.*`, `gen_ai.input/output.messages` (or legacy prompt/completion events), request parameters, span status and `exception` events → the same event model. JSON encoding only. |
 
 ## 7. Analytics design (Phase 3)
 
@@ -200,8 +227,8 @@ Base path `/v1`. Request/response types live in `packages/shared/src/contracts.t
 | Phase                    | Scope                                                                                                    | Status  |
 | ------------------------ | -------------------------------------------------------------------------------------------------------- | ------- |
 | 1 · Foundation           | Monorepo, Docker, full schema + migrations, auth, organizations, projects, API keys, dashboard shell, CI | ✅ Done |
-| 2 · Telemetry            | Ingestion API + queue, trace/span persistence, OTLP endpoint, TypeScript SDK, redaction                  | Next    |
-| 3 · Analytics            | Overview metrics, tokens, costs + pricing registry, p50/p95/p99, error monitoring                        |         |
+| 2 · Telemetry            | Ingestion API + queue, trace/span persistence, OTLP endpoint, TypeScript SDK, redaction                  | ✅ Done |
+| 3 · Analytics            | Overview metrics, tokens, costs + pricing registry, p50/p95/p99, error monitoring                        | Next    |
 | 4 · Developer experience | Trace explorer (span tree/timeline), prompt history and comparison, evaluations, search                  |         |
 | 5 · Production readiness | Members/invitations, retention job, OpenAPI, load tests, demo dataset, deployment guide                  |         |
 
@@ -216,3 +243,4 @@ See [`docs/adr`](./adr):
 3. [Authentication: session cookies, hashed API keys, scrypt](./adr/003-authentication.md)
 4. [Same-origin API proxy in the dashboard](./adr/004-dashboard-api-proxy.md)
 5. [Preserve raw telemetry; version prices; defer partitioning](./adr/005-telemetry-storage.md)
+6. [Asynchronous, idempotent ingestion pipeline](./adr/006-ingestion-pipeline.md)

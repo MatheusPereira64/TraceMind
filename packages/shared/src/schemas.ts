@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { ENVIRONMENTS, ORGANIZATION_ROLES } from './enums.js';
+import { redactionSettingsSchema } from './ingestion.js';
 
 /* ------------------------------------------------------------------ primitives */
 
@@ -78,6 +79,7 @@ export const updateProjectSchema = z
     name: z.string().trim().min(2).max(120),
     description: z.string().trim().max(500).nullable(),
     retentionDays: z.number().int().min(1).max(3650),
+    redaction: redactionSettingsSchema,
   })
   .partial()
   .refine((value) => Object.keys(value).length > 0, 'Provide at least one field to update');

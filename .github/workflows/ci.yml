@@ -46,7 +46,8 @@ jobs:
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter @tracemind/shared run build
+      - name: Build workspace packages (shared, sdk)
+        run: pnpm --filter "./packages/**" run build
       - run: pnpm format:check
       - run: pnpm typecheck
       - run: pnpm lint

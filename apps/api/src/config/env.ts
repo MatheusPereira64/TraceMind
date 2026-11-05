@@ -38,6 +38,16 @@ export const envSchema = z.object({
   COOKIE_SECURE: booleanFromString.optional(),
 
   RATE_LIMIT_PER_MINUTE: z.coerce.number().int().min(1).default(300),
+  /** Per API key. Each request may carry up to 1000 events. */
+  INGEST_RATE_LIMIT_PER_MINUTE: z.coerce.number().int().min(1).default(600),
+
+  /** Run the ingestion worker in this process. Disable to run API-only replicas. */
+  INGESTION_WORKER_ENABLED: booleanFromString.default(true),
+  INGESTION_CONCURRENCY: z.coerce.number().int().min(1).max(64).default(4),
+  /** Base delay of the exponential retry backoff (6 attempts: ≈2s, 4s, 8s, 16s, 32s). */
+  INGESTION_RETRY_DELAY_MS: z.coerce.number().int().min(1).default(2_000),
+  /** Back-pressure: above this many waiting batches, ingestion answers 503 + Retry-After. */
+  INGESTION_MAX_QUEUED_BATCHES: z.coerce.number().int().min(10).default(10_000),
   AUTH_RATE_LIMIT_PER_MINUTE: z.coerce.number().int().min(1).default(10),
 });
 

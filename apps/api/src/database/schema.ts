@@ -1,4 +1,6 @@
 import {
+  DEFAULT_REDACTION_SETTINGS,
+  type RedactionSettings,
   ENVIRONMENTS,
   ERROR_TYPES,
   EVALUATION_KINDS,
@@ -104,6 +106,11 @@ export const projects = pgTable(
     description: text('description'),
     /** Raw telemetry older than this is eligible for deletion by the retention job. */
     retentionDays: integer('retention_days').notNull().default(30),
+    /** Masking applied to telemetry before it is queued or stored. */
+    redaction: jsonb('redaction')
+      .$type<RedactionSettings>()
+      .notNull()
+      .default(DEFAULT_REDACTION_SETTINGS),
     /** Demo projects hold simulated telemetry and are labelled as such in the UI. */
     isDemo: boolean('is_demo').notNull().default(false),
     createdAt: createdAt(),
@@ -207,9 +214,14 @@ export const traces = pgTable(
       .notNull()
       .default(sql`'{}'::text[]`),
     metadata: jsonb('metadata').$type<Record<string, unknown>>().notNull().default({}),
+    /** End-to-end input/output of the request (e.g. user question and final answer). */
+    input: jsonb('input'),
+    output: jsonb('output'),
     startedAt: timestamp('started_at', { withTimezone: true }).notNull(),
     endedAt: timestamp('ended_at', { withTimezone: true }),
     durationMs: integer('duration_ms'),
+    /** False while only spans referencing this trace have arrived (no trace event yet). */
+    isComplete: boolean('is_complete').notNull().default(true),
     isSimulated: boolean('is_simulated').notNull().default(false),
     createdAt: createdAt(),
   },
@@ -235,6 +247,11 @@ export const spans = pgTable(
       onDelete: 'cascade',
     }),
     externalId: text('external_id').notNull(),
+    /**
+     * Client-side parent id. parent_span_id is resolved from it once the parent has arrived, so
+     * children may be ingested before their parents.
+     */
+    parentExternalId: text('parent_external_id'),
     name: text('name').notNull(),
     kind: spanKind('kind').notNull().default('custom'),
     status: traceStatus('status').notNull().default('running'),
@@ -318,6 +335,13 @@ export const telemetryErrors = pgTable(
     index('errors_project_occurred_idx').on(t.projectId, t.occurredAt.desc()),
     index('errors_project_type_occurred_idx').on(t.projectId, t.type, t.occurredAt.desc()),
     index('errors_trace_idx').on(t.traceId),
+    // Ingestion upserts at most one error per span, and one trace-level error per trace.
+    uniqueIndex('errors_span_uq')
+      .on(t.spanId)
+      .where(sql`${t.spanId} IS NOT NULL`),
+    uniqueIndex('errors_trace_level_uq')
+      .on(t.traceId)
+      .where(sql`${t.spanId} IS NULL`),
   ],
 );
 
@@ -332,6 +356,8 @@ export const evaluations = pgTable(
       .notNull()
       .references(() => traces.id, { onDelete: 'cascade' }),
     spanId: uuid('span_id').references(() => spans.id, { onDelete: 'cascade' }),
+    /** Client idempotency key (optional). */
+    externalId: text('external_id'),
     /** e.g. `helpfulness`, `correctness`, `user_feedback`. */
     criterion: text('criterion').notNull(),
     kind: evaluationKind('kind').notNull(),
@@ -347,6 +373,9 @@ export const evaluations = pgTable(
   (t) => [
     index('evaluations_project_created_idx').on(t.projectId, t.createdAt.desc()),
     index('evaluations_trace_idx').on(t.traceId),
+    uniqueIndex('evaluations_project_external_uq')
+      .on(t.projectId, t.externalId)
+      .where(sql`${t.externalId} IS NOT NULL`),
     check('evaluations_thumbs_score_ck', sql`${t.kind} <> 'thumbs' OR ${t.score} IN (0, 1)`),
   ],
 );
@@ -369,3 +398,4 @@ export type Organization = typeof organizations.$inferSelect;
 export type OrganizationMember = typeof organizationMembers.$inferSelect;
 export type Project = typeof projects.$inferSelect;
 export type ApiKey = typeof apiKeys.$inferSelect;
+export type ModelPricing = typeof modelPricing.$inferSelect;

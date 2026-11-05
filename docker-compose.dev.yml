@@ -36,6 +36,12 @@ services:
   otel-collector:
     image: otel/opentelemetry-collector-contrib:0.154.0
     command: ['--config=/etc/otelcol/config.yaml']
+    environment:
+      # The API runs on the host during development.
+      TRACEMIND_INGEST_URL: http://host.docker.internal:4000
+      TRACEMIND_COLLECTOR_API_KEY: ${TRACEMIND_COLLECTOR_API_KEY:-}
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'
     volumes:
       - ./infrastructure/otel-collector/config.yaml:/etc/otelcol/config.yaml:ro
     ports:

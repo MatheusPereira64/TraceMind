@@ -1,0 +1,41 @@
+{
+  "name": "@tracemind/sdk",
+  "version": "0.1.0",
+  "description": "TypeScript SDK for TraceMind: trace LLM calls, tokens, costs, latency and errors.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "sideEffects": false,
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "llm",
+    "observability",
+    "tracing",
+    "openai",
+    "opentelemetry"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "tsc -p tsconfig.build.json --watch --preserveWatchOutput",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@tracemind/shared": "workspace:*",
+    "@types/node": "^24.0.0",
+    "typescript": "~6.0.2",
+    "vitest": "^4.1.2"
+  }
+}

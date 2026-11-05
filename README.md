@@ -6,9 +6,9 @@ costs, how long it takes, where it fails and how good the answers are.
 TraceMind is a full-stack platform: a NestJS ingestion and analytics API, a Next.js dashboard, a
 TypeScript SDK and OpenTelemetry support, backed by PostgreSQL and Redis.
 
-> **Status:** Phase 1 (foundation) is complete — authentication, multi-tenant organizations, projects,
-> API keys, database schema for all telemetry, Docker environment and CI. Telemetry ingestion and the
-> SDK are next. See the [delivery plan](docs/ARCHITECTURE.md#8-delivery-plan).
+> **Status:** Phases 1–2 are complete — multi-tenant foundation, telemetry ingestion (REST + OTLP),
+> TypeScript SDK with OpenAI instrumentation, and sensitive-data redaction. Analytics dashboards
+> (costs, p50/p95, errors) are next. See the [delivery plan](docs/ARCHITECTURE.md#8-delivery-plan).
 
 ## Stack
 
@@ -34,6 +34,34 @@ Open <http://localhost:3000>, create an account, create a project and generate a
 curl http://localhost:4000/v1/ingest/whoami -H "Authorization: Bearer tm_dev_…"
 ```
 
+## Send telemetry
+
+**TypeScript SDK** ([full guide](packages/sdk/README.md)):
+
+```ts
+import { TraceMind, observeOpenAI } from '@tracemind/sdk';
+import OpenAI from 'openai';
+
+const tracemind = new TraceMind({
+  apiKey: process.env.TRACEMIND_API_KEY,
+  baseUrl: 'http://localhost:4000',
+});
+const openai = observeOpenAI(new OpenAI(), { tracemind }); // every call becomes a trace
+
+const trace = tracemind.trace({ name: 'customer-support', userId: 'user-123' });
+const order = await trace.withSpan({ name: 'lookup-order', kind: 'tool' }, () => findOrder(7));
+await trace.end({ output: order });
+await tracemind.shutdown();
+```
+
+**OpenTelemetry**: point any OTLP exporter at the bundled Collector (`localhost:4317`/`4318`) and set
+`TRACEMIND_COLLECTOR_API_KEY` in `.env`, or export directly to
+`http://localhost:4000/v1/ingest/otlp/v1/traces` with `encoding: json` and an `Authorization: Bearer`
+header. GenAI semantic-convention attributes (`gen_ai.*`) become LLM spans with tokens and cost.
+
+**Raw HTTP**: `POST /v1/ingest/batch` with trace, span and evaluation events — see
+[the contract](docs/ARCHITECTURE.md#6-ingestion-pipeline).
+
 ## Local development
 
 Requires Node.js 22+ and pnpm 10 (`corepack enable`).
@@ -58,8 +86,9 @@ pnpm dev                                            # API :4000 (watch) + dashbo
 ## Repository layout
 
 ```
-apps/api          NestJS API — auth, tenancy, API keys, (next) ingestion and analytics
+apps/api          NestJS API — auth, tenancy, API keys, ingestion queue/worker, (next) analytics
 apps/web          Next.js dashboard
+packages/sdk      Zero-dependency TypeScript SDK (traces, spans, OpenAI wrapper, feedback)
 packages/shared   Enums, Zod schemas and API contracts shared by API, dashboard and SDK
 infrastructure    OpenTelemetry Collector and Postgres init config
 docs              Architecture, API contracts and decision records
@@ -75,6 +104,10 @@ docs              Architecture, API contracts and decision records
   access check that answers 404 to outsiders and 403 to insufficient roles.
 - **Separate credentials for people and machines.** httpOnly session cookies for the dashboard,
   SHA-256-hashed, environment-tagged API keys for telemetry ([ADR-003](docs/adr/003-authentication.md)).
-- **One contract, enforced twice.** The same Zod schemas validate input in the API and the dashboard.
+- **One contract, enforced twice.** The same Zod schemas validate input in the API and the dashboard;
+  an SDK test fails if the SDK's wire types drift from them.
+- **Ingestion that tolerates the real world.** Per-event validation, idempotent upserts, out-of-order
+  spans, retries with a dead letter, back-pressure and redaction before anything is stored
+  ([ADR-006](docs/adr/006-ingestion-pipeline.md)).
 
 Read the full [architecture document](docs/ARCHITECTURE.md).

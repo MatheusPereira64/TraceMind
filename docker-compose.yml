@@ -70,6 +70,7 @@ services:
       # Plain HTTP locally; set to true behind TLS.
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
       TRUST_PROXY: ${TRUST_PROXY:-false}
+      INGESTION_CONCURRENCY: ${INGESTION_CONCURRENCY:-4}
     ports:
       - '${API_PORT:-4000}:4000'
     depends_on:
@@ -98,6 +99,10 @@ services:
     image: otel/opentelemetry-collector-contrib:0.154.0
     restart: unless-stopped
     command: ['--config=/etc/otelcol/config.yaml']
+    environment:
+      TRACEMIND_INGEST_URL: http://api:4000
+      # Create an API key in the dashboard, put it in .env and restart the collector.
+      TRACEMIND_COLLECTOR_API_KEY: ${TRACEMIND_COLLECTOR_API_KEY:-}
     volumes:
       - ./infrastructure/otel-collector/config.yaml:/etc/otelcol/config.yaml:ro
     ports:

@@ -1,9 +1,14 @@
 import { ConflictException, Inject, Injectable } from '@nestjs/common';
-import type { CreateProjectInput, ProjectDto, UpdateProjectInput } from '@tracemind/shared';
-import { and, asc, eq, isNull } from 'drizzle-orm';
+import type {
+  CreateProjectInput,
+  IngestionStatusDto,
+  ProjectDto,
+  UpdateProjectInput,
+} from '@tracemind/shared';
+import { and, asc, count, desc, eq, isNull, max } from 'drizzle-orm';
 import { toProjectDto } from '../common/serializers.js';
 import { DATABASE, type Database } from '../database/database.module.js';
-import { projects } from '../database/schema.js';
+import { ingestionFailures, projects, spans, traces } from '../database/schema.js';
 import { AccessService } from '../organizations/access.service.js';
 import { baseSlug, withSuffix } from '../organizations/slug.js';
 
@@ -94,5 +99,38 @@ export class ProjectsService {
       .returning();
     if (!project) throw new ConflictException('Project was removed concurrently');
     return toProjectDto(project);
+  }
+
+  /** Quick health view of a project's telemetry pipeline (used by onboarding and settings). */
+  async ingestionStatus(userId: string, projectId: string): Promise<IngestionStatusDto> {
+    await this.access.requireProjectRole(userId, projectId, 'viewer');
+    const [traceStats, spanStats, failures] = await Promise.all([
+      this.db
+        .select({ total: count(), last: max(traces.createdAt) })
+        .from(traces)
+        .where(eq(traces.projectId, projectId)),
+      this.db.select({ total: count() }).from(spans).where(eq(spans.projectId, projectId)),
+      this.db
+        .select({
+          id: ingestionFailures.id,
+          reason: ingestionFailures.reason,
+          createdAt: ingestionFailures.createdAt,
+        })
+        .from(ingestionFailures)
+        .where(eq(ingestionFailures.projectId, projectId))
+        .orderBy(desc(ingestionFailures.createdAt))
+        .limit(10),
+    ]);
+    const last = traceStats[0]?.last;
+    return {
+      traceCount: traceStats[0]?.total ?? 0,
+      spanCount: spanStats[0]?.total ?? 0,
+      lastReceivedAt: last ? new Date(last).toISOString() : null,
+      recentFailures: failures.map((failure) => ({
+        id: failure.id,
+        reason: failure.reason,
+        createdAt: failure.createdAt.toISOString(),
+      })),
+    };
   }
 }

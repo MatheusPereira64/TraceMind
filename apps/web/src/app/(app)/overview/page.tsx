@@ -11,7 +11,7 @@ import { useOrganization } from '@/components/organization-context';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Card, CardHeader } from '@/components/ui/card';
 import { ErrorState, LoadingState } from '@/components/ui/states';
-import { useApiKeys, useProjects } from '@/hooks/queries';
+import { useApiKeys, useIngestionStatus, useProjects } from '@/hooks/queries';
 import { cn } from '@/lib/utils';
 
 function Step({
@@ -64,8 +64,9 @@ function Step({
 /** The first project's keys tell us whether onboarding step 2 is done. */
 function KeyStep({ projectId }: { projectId: string }) {
   const keys = useApiKeys(projectId);
+  const ingestion = useIngestionStatus(projectId);
   const hasKey = (keys.data ?? []).some((key) => !key.revokedAt);
-  const hasUsedKey = (keys.data ?? []).some((key) => key.lastUsedAt !== null);
+  const hasTraces = (ingestion.data?.traceCount ?? 0) > 0;
   return (
     <>
       <Step
@@ -84,11 +85,23 @@ function KeyStep({ projectId }: { projectId: string }) {
         }
       />
       <Step
-        pending={keys.isPending}
-        done={hasUsedKey}
+        pending={ingestion.isPending}
+        done={hasTraces}
         icon={Radio}
-        title="Connect your application"
-        description="Verify the key from your app's environment. Trace ingestion and the TypeScript SDK arrive in the next release."
+        title="Send your first trace"
+        description={
+          hasTraces
+            ? `${ingestion.data?.traceCount ?? 0} traces received so far.`
+            : 'Install @tracemind/sdk or point an OpenTelemetry exporter at TraceMind. This step completes when the first trace arrives.'
+        }
+        action={
+          <Link
+            href={`/projects/${projectId}`}
+            className={buttonVariants({ size: 'sm', variant: 'secondary' })}
+          >
+            View setup
+          </Link>
+        }
       />
     </>
   );

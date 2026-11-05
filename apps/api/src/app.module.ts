@@ -2,16 +2,17 @@ import { Module } from '@nestjs/common';
 import { APP_FILTER, APP_GUARD } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { LoggerModule } from 'nestjs-pino';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { ApiKeysModule } from './api-keys/api-keys.module.js';
 import { AuthModule } from './auth/auth.module.js';
-import { AUTH_RATE_LIMITED } from './auth/decorators.js';
+import { AUTH_RATE_LIMITED, INGEST_RATE_LIMITED } from './auth/decorators.js';
 import { HttpExceptionFilter } from './common/http-exception.filter.js';
 import { ConfigModule } from './config/config.module.js';
 import { ENV, type Env } from './config/env.js';
 import { DatabaseModule } from './database/database.module.js';
 import { HealthController } from './health/health.controller.js';
+import { IngestionModule } from './ingestion/ingestion.module.js';
 import { OrganizationsModule } from './organizations/organizations.module.js';
 import { ProjectsModule } from './projects/projects.module.js';
 import { RedisModule } from './redis/redis.module.js';
@@ -66,6 +67,24 @@ const REQUEST_ID = /^[A-Za-z0-9._-]{1,128}$/;
             skipIf: (context) =>
               Reflect.getMetadata(AUTH_RATE_LIMITED, context.getHandler()) !== true,
           },
+          {
+            // Keyed by API key rather than IP: many services may share one egress IP.
+            name: 'ingest',
+            ttl: MINUTE_MS,
+            limit: env.INGEST_RATE_LIMIT_PER_MINUTE,
+            skipIf: (context) =>
+              Reflect.getMetadata(INGEST_RATE_LIMITED, context.getClass()) !== true,
+            getTracker: (request: Record<string, unknown>) => {
+              const headers = request.headers as Record<string, string | undefined>;
+              const key =
+                headers.authorization?.replace(/^Bearer\s+/i, '') ??
+                headers['x-tracemind-key'] ??
+                '';
+              return key
+                ? `key:${createHash('sha256').update(key).digest('hex').slice(0, 24)}`
+                : `ip:${String(request.ip)}`;
+            },
+          },
         ],
       }),
     }),
@@ -75,6 +94,7 @@ const REQUEST_ID = /^[A-Za-z0-9._-]{1,128}$/;
     AuthModule,
     ProjectsModule,
     ApiKeysModule,
+    IngestionModule,
   ],
   controllers: [HealthController],
   providers: [

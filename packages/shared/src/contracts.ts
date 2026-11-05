@@ -1,4 +1,5 @@
 import type { Environment, OrganizationRole } from './enums.js';
+import type { RedactionSettings } from './ingestion.js';
 
 /**
  * Response contracts of the TraceMind REST API (v1). Dates are ISO-8601 strings on the wire.
@@ -26,6 +27,7 @@ export interface ProjectDto {
   slug: string;
   description: string | null;
   retentionDays: number;
+  redaction: RedactionSettings;
   isDemo: boolean;
   createdAt: string;
   archivedAt: string | null;

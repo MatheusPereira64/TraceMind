@@ -1,14 +1,14 @@
 {
   "name": "tracemind",
   "private": true,
-  "description": "TraceMind — LLM observability platform (traces, tokens, costs, latency, quality).",
+  "description": "TraceMind \u2014 LLM observability platform (traces, tokens, costs, latency, quality).",
   "packageManager": "pnpm@10.28.0",
   "engines": {
     "node": ">=22"
   },
   "scripts": {
-    "build": "pnpm -r --filter ./packages/** run build && pnpm -r --filter ./apps/** run build",
-    "dev": "pnpm --filter @tracemind/shared run build && pnpm -r --parallel --filter ./apps/** run dev",
+    "build": "pnpm -r --filter \"./packages/**\" run build && pnpm -r --filter \"./apps/**\" run build",
+    "dev": "pnpm --filter \"./packages/**\" run build && pnpm -r --parallel --filter \"./apps/**\" run dev",
     "lint": "pnpm -r run lint",
     "typecheck": "pnpm -r run typecheck",
     "test": "pnpm -r run test",

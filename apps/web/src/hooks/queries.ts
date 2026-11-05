@@ -7,12 +7,14 @@ import type {
   CreateOrganizationInput,
   CreateProjectInput,
   CreatedApiKeyDto,
+  IngestionStatusDto,
   LoginInput,
   MeDto,
   OrganizationDto,
   ProjectDto,
   RegisterInput,
   SessionDto,
+  UpdateProjectInput,
 } from '@tracemind/shared';
 import { api, ApiError } from '@/lib/api-client';
 
@@ -21,6 +23,7 @@ export const queryKeys = {
   projects: (organizationId: string) => ['organizations', organizationId, 'projects'] as const,
   project: (projectId: string) => ['projects', projectId] as const,
   apiKeys: (projectId: string) => ['projects', projectId, 'api-keys'] as const,
+  ingestion: (projectId: string) => ['projects', projectId, 'ingestion'] as const,
 };
 
 /* -------------------------------------------------------------------- session */
@@ -131,5 +134,29 @@ export function useRevokeApiKey(projectId: string) {
     mutationFn: (keyId: string) =>
       api.delete<ApiKeyDto>(`/v1/projects/${projectId}/api-keys/${keyId}`),
     onSuccess: () => client.invalidateQueries({ queryKey: queryKeys.apiKeys(projectId) }),
+  });
+}
+
+/* ------------------------------------------------------------------- ingestion */
+
+/** Polls while the page is open so the first trace shows up without a reload. */
+export function useIngestionStatus(projectId: string | undefined, pollMs = 5_000) {
+  return useQuery({
+    queryKey: queryKeys.ingestion(projectId ?? 'none'),
+    queryFn: () => api.get<IngestionStatusDto>(`/v1/projects/${projectId}/ingestion`),
+    enabled: Boolean(projectId),
+    refetchInterval: pollMs,
+  });
+}
+
+export function useUpdateProject(projectId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: UpdateProjectInput) =>
+      api.patch<ProjectDto>(`/v1/projects/${projectId}`, input),
+    onSuccess: (project) => {
+      client.setQueryData(queryKeys.project(projectId), project);
+      return client.invalidateQueries({ queryKey: queryKeys.projects(project.organizationId) });
+    },
   });
 }
