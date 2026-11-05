@@ -1,10 +1,13 @@
 'use client';
 
 import {
+  Activity,
+  CircleDollarSign,
   FolderKanban,
   LayoutDashboard,
   LogOut,
   Menu,
+  OctagonAlert,
   Settings,
   X,
   type LucideIcon,
@@ -26,11 +29,14 @@ interface NavItem {
 }
 
 /**
- * Sections appear here as they ship. Traces, Analytics, Costs, Evaluations and Errors arrive with
- * the telemetry phases (see docs/ARCHITECTURE.md §8) rather than as empty placeholders.
+ * Sections appear here as they ship (Traces and Evaluations arrive with Phase 4) rather than as
+ * empty placeholders.
  */
 export const NAV_ITEMS: NavItem[] = [
   { href: '/overview', label: 'Overview', icon: LayoutDashboard },
+  { href: '/analytics', label: 'Analytics', icon: Activity },
+  { href: '/costs', label: 'Costs', icon: CircleDollarSign },
+  { href: '/errors', label: 'Errors', icon: OctagonAlert },
   { href: '/projects', label: 'Projects', icon: FolderKanban },
   { href: '/settings', label: 'Settings', icon: Settings },
 ];
@@ -120,8 +126,10 @@ export function AppShell({ user, children }: { user: UserDto; children: ReactNod
 
   return (
     <div className="flex min-h-dvh">
-      <aside className="sticky top-0 hidden h-dvh w-60 shrink-0 border-r border-border bg-surface md:block">
-        <Sidebar user={user} />
+      <aside className="hidden w-60 shrink-0 border-r border-border bg-surface md:block">
+        <div className="sticky top-0 h-dvh">
+          <Sidebar user={user} />
+        </div>
       </aside>
 
       {mobileOpen ? (

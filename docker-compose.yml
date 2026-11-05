@@ -44,13 +44,14 @@ services:
       timeout: 3s
       retries: 10
 
-  # One-shot: applies pending migrations, then exits. The API starts only if it succeeds.
+  # One-shot: applies pending migrations and syncs the model price registry, then exits.
+  # The API starts only if it succeeds.
   migrate:
     build:
       context: .
       dockerfile: apps/api/Dockerfile
     image: tracemind-api:local
-    command: ['node', 'dist/database/migrate.js']
+    command: ['sh', '-c', 'node dist/database/migrate.js && node dist/pricing/sync.js']
     environment:
       <<: *api-env
     depends_on:

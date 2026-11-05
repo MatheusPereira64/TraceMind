@@ -38,6 +38,8 @@ export const envSchema = z.object({
   COOKIE_SECURE: booleanFromString.optional(),
 
   RATE_LIMIT_PER_MINUTE: z.coerce.number().int().min(1).default(300),
+  /** Seconds analytics responses are cached in Redis (0 disables). */
+  ANALYTICS_CACHE_TTL_SECONDS: z.coerce.number().int().min(0).max(3600).default(15),
   /** Per API key. Each request may carry up to 1000 events. */
   INGEST_RATE_LIMIT_PER_MINUTE: z.coerce.number().int().min(1).default(600),
 

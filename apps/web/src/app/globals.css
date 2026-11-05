@@ -24,6 +24,20 @@
   --danger: oklch(0.64 0.21 25);
   --ring: oklch(0.62 0.2 293 / 0.55);
 
+  /* Data viz: categorical slots in fixed order (validated for CVD separation and >=3:1 on the
+     dark card surface), status colors reserved for state, recessive chrome. */
+  --series-1: #3987e5;
+  --series-2: #d95926;
+  --series-3: #199e70;
+  --series-4: #c98500;
+  --series-5: #d55181;
+  --series-6: #008300;
+  --status-good: #0ca30c;
+  --status-warning: #fab219;
+  --status-critical: #d03b3b;
+  --chart-grid: #2c2c2a;
+  --chart-axis: #898781;
+
   color-scheme: dark;
 }
 
@@ -38,6 +52,14 @@
   --subtle: oklch(0.6 0.012 286);
   --primary: oklch(0.54 0.22 293);
   --primary-hover: oklch(0.49 0.22 293);
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --series-3: #1baf7a;
+  --series-4: #eda100;
+  --series-5: #e87ba4;
+  --series-6: #008300;
+  --chart-grid: #e1e0d9;
+  --chart-axis: #898781;
   color-scheme: light;
 }
 
@@ -58,6 +80,9 @@
   --color-warning: var(--warning);
   --color-danger: var(--danger);
   --color-ring: var(--ring);
+  --color-status-good: var(--status-good);
+  --color-status-warning: var(--status-warning);
+  --color-status-critical: var(--status-critical);
 
   --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
   --font-mono: var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, monospace;

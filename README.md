@@ -6,9 +6,22 @@ costs, how long it takes, where it fails and how good the answers are.
 TraceMind is a full-stack platform: a NestJS ingestion and analytics API, a Next.js dashboard, a
 TypeScript SDK and OpenTelemetry support, backed by PostgreSQL and Redis.
 
-> **Status:** Phases 1–2 are complete — multi-tenant foundation, telemetry ingestion (REST + OTLP),
-> TypeScript SDK with OpenAI instrumentation, and sensitive-data redaction. Analytics dashboards
-> (costs, p50/p95, errors) are next. See the [delivery plan](docs/ARCHITECTURE.md#8-delivery-plan).
+![TraceMind overview dashboard: requests, tokens, estimated cost, latency, success rate, and cost per model](docs/screenshots/overview.png)
+
+<sub>Screenshots use the bundled demo project, which contains **simulated** telemetry of an AI support
+agent (see [Demo](#demo)). Costs are estimated from the providers' published list prices.</sub>
+
+> **Status:** Phases 1–3 are complete — multi-tenant foundation, telemetry ingestion (REST + OTLP),
+> TypeScript SDK with OpenAI instrumentation, sensitive-data redaction, and analytics for usage,
+> latency percentiles, costs and errors. The trace explorer is next. See the
+> [delivery plan](docs/ARCHITECTURE.md#8-delivery-plan).
+
+## What you get
+
+|                                                                                                                                                                        |                                                                                                                                                                                                                             |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Latency** — exact p50/p95/p99 per interval, latency distribution and the slowest calls. ![Latency analytics](docs/screenshots/analytics.png)                         | **Costs** — spend per model over time, input vs output vs cached tokens, prompt-cache savings and the most expensive requests, priced from a versioned registry with sources. ![Cost analytics](docs/screenshots/costs.png) |
+| **Errors** — rate limits, timeouts, provider errors and failed tool calls over time, with the trace of every failure. ![Error monitoring](docs/screenshots/errors.png) | **Ingestion you can trust** — per-event validation, idempotent upserts, out-of-order spans, retries with a dead letter, and masking of API keys, tokens, card numbers and emails before anything is stored.                 |
 
 ## Stack
 
@@ -33,6 +46,18 @@ Open <http://localhost:3000>, create an account, create a project and generate a
 ```bash
 curl http://localhost:4000/v1/ingest/whoami -H "Authorization: Bearer tm_dev_…"
 ```
+
+## Demo
+
+Load 60 days of simulated telemetry (an AI support agent using OpenAI, Anthropic and Google models,
+with prompt caching, a rate-limit incident and a slow deploy) and sign in as the demo user:
+
+```bash
+docker compose run --rm migrate node dist/demo/seed-demo.js   # or: pnpm --filter @tracemind/api demo:seed
+```
+
+Sign in at <http://localhost:3000> with `demo@tracemind.dev` / `tracemind-demo`. Everything in the
+demo project is flagged as simulated and labelled in the UI.
 
 ## Send telemetry
 
@@ -75,18 +100,20 @@ pnpm db:migrate
 pnpm dev                                            # API :4000 (watch) + dashboard :3000
 ```
 
-| Command                                 | What it does                                                              |
-| --------------------------------------- | ------------------------------------------------------------------------- |
-| `pnpm test`                             | Unit and component tests for all packages                                 |
-| `pnpm --filter @tracemind/api test:e2e` | API integration tests against real Postgres + Redis (`tracemind_test`)    |
-| `pnpm typecheck` / `pnpm lint`          | Type checking and linting across the workspace                            |
-| `pnpm db:generate`                      | Generate a SQL migration after changing `apps/api/src/database/schema.ts` |
-| `pnpm build`                            | Production build of every package                                         |
+| Command                                     | What it does                                                                                     |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `pnpm test`                                 | Unit and component tests for all packages                                                        |
+| `pnpm --filter @tracemind/api test:e2e`     | API integration tests against real Postgres + Redis (`tracemind_test`), including SDK → API → DB |
+| `pnpm typecheck` / `pnpm lint`              | Type checking and linting across the workspace                                                   |
+| `pnpm db:generate`                          | Generate a SQL migration after changing `apps/api/src/database/schema.ts`                        |
+| `pnpm --filter @tracemind/api pricing:sync` | Load `apps/api/pricing/models.json` and recompute estimated costs                                |
+| `pnpm --filter @tracemind/api demo:seed`    | Create the demo user and 60 days of simulated telemetry                                          |
+| `pnpm build`                                | Production build of every package                                                                |
 
 ## Repository layout
 
 ```
-apps/api          NestJS API — auth, tenancy, API keys, ingestion queue/worker, (next) analytics
+apps/api          NestJS API — auth, tenancy, API keys, ingestion queue/worker, analytics, pricing
 apps/web          Next.js dashboard
 packages/sdk      Zero-dependency TypeScript SDK (traces, spans, OpenAI wrapper, feedback)
 packages/shared   Enums, Zod schemas and API contracts shared by API, dashboard and SDK
@@ -98,8 +125,11 @@ docs              Architecture, API contracts and decision records
 
 - **Raw telemetry is the source of truth.** Every trace and span is preserved; costs and percentiles are
   computed from it, so numbers can be recomputed and audited ([ADR-005](docs/adr/005-telemetry-storage.md)).
-- **Versioned model pricing.** Costs resolve against the price valid when the call happened; estimated
-  and provider-reported costs are kept apart.
+- **Versioned model pricing as data.** Prices live in a reviewed JSON registry with official sources and
+  dated windows; costs resolve against the price valid when the call happened, use exact decimal
+  arithmetic, and are recomputed when prices change ([ADR-007](docs/adr/007-price-registry.md)).
+- **Correct percentiles.** p50/p95/p99 are computed over the exact filtered set per interval, never
+  averaged across buckets; buckets follow the viewer's time zone.
 - **Tenant isolation by construction.** Every telemetry row carries `project_id`; every route passes an
   access check that answers 404 to outsiders and 403 to insufficient roles.
 - **Separate credentials for people and machines.** httpOnly session cookies for the dashboard,

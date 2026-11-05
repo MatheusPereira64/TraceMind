@@ -1,174 +1,147 @@
 'use client';
 
-import { hasRoleAtLeast } from '@tracemind/shared';
-import { Check, FolderKanban, KeyRound, Loader2, Radio } from 'lucide-react';
-import Link from 'next/link';
-import { useRouter } from 'next/navigation';
-import { useState, type ReactNode } from 'react';
-import { PageHeader } from '@/components/app-shell';
-import { CreateProjectDialog } from '@/components/create-project-dialog';
-import { useOrganization } from '@/components/organization-context';
-import { Button, buttonVariants } from '@/components/ui/button';
-import { Card, CardHeader } from '@/components/ui/card';
-import { ErrorState, LoadingState } from '@/components/ui/states';
-import { useApiKeys, useIngestionStatus, useProjects } from '@/hooks/queries';
-import { cn } from '@/lib/utils';
+import { Suspense } from 'react';
+import { AnalyticsShell, type AnalyticsContext } from '@/components/analytics/analytics-shell';
+import { ChartCard, seriesColorMap } from '@/components/analytics/chart-kit';
+import { CostByModelChart, RequestsChart, TokensChart } from '@/components/analytics/charts';
+import { Kpi, KpiGrid } from '@/components/analytics/kpi';
+import { ModelsTable } from '@/components/analytics/tables';
+import { GettingStarted } from '@/components/getting-started';
+import { LoadingState } from '@/components/ui/states';
+import { useBreakdown, useOverview, useTimeseries } from '@/hooks/analytics';
+import { formatMs, formatNumber, formatPercent, formatUsd } from '@/lib/format';
 
-function Step({
-  done,
-  pending = false,
-  icon: Icon,
-  title,
-  description,
-  action,
-}: {
-  done: boolean;
-  /** Completion is still being determined; avoids flashing "not done". */
-  pending?: boolean;
-  icon: typeof FolderKanban;
-  title: string;
-  description: ReactNode;
-  action?: ReactNode;
-}) {
+function Dashboard({ project, query, dimensions }: AnalyticsContext) {
+  const overview = useOverview(project.id, query);
+  const timeseries = useTimeseries(project.id, query);
+  const breakdown = useBreakdown(project.id, query, 'model');
+  const colorFor = seriesColorMap(dimensions.models.map((entry) => entry.model));
+  const current = overview.data?.current;
+  const previous = overview.data?.previous;
+  const loading = overview.isPending;
+
   return (
-    <li className="flex items-start gap-4 px-5 py-4">
-      <div
-        className={cn(
-          'mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full border',
-          done
-            ? 'border-success/40 bg-success/10 text-success'
-            : 'border-border bg-surface-raised text-muted',
-        )}
-      >
-        {pending ? (
-          <Loader2 className="size-4 animate-spin" aria-label="Checking" />
-        ) : done ? (
-          <Check className="size-4" aria-label="Done" />
-        ) : (
-          <Icon className="size-4" aria-hidden />
-        )}
-      </div>
-      <div className="min-w-0 flex-1">
-        <p
-          className={cn('text-sm font-medium', done && 'text-muted line-through decoration-subtle')}
+    <div className="space-y-6">
+      <KpiGrid>
+        <Kpi
+          label="LLM requests"
+          value={current ? formatNumber(current.requests) : '—'}
+          current={current?.requests}
+          previous={previous?.requests}
+          loading={loading}
+        />
+        <Kpi
+          label="Tokens"
+          value={current ? formatNumber(current.totalTokens) : '—'}
+          current={current?.totalTokens}
+          previous={previous?.totalTokens}
+          loading={loading}
+        />
+        <Kpi
+          label="Estimated cost"
+          value={current ? formatUsd(current.estimatedCostUsd) : '—'}
+          current={current ? Number(current.estimatedCostUsd) : undefined}
+          previous={previous ? Number(previous.estimatedCostUsd) : undefined}
+          better="down"
+          hint="Computed from the model price registry at the time of each call. Provider-reported costs are tracked separately on the Costs page."
+          loading={loading}
+        />
+        <Kpi
+          label="Avg latency"
+          value={formatMs(current?.avgLatencyMs)}
+          current={current?.avgLatencyMs ?? undefined}
+          previous={previous?.avgLatencyMs ?? undefined}
+          better="down"
+          loading={loading}
+        />
+        <Kpi
+          label="p95 latency"
+          value={formatMs(current?.p95LatencyMs)}
+          current={current?.p95LatencyMs ?? undefined}
+          previous={previous?.p95LatencyMs ?? undefined}
+          better="down"
+          hint={`Exact percentile over every LLM call in the range. p50: ${formatMs(current?.p50LatencyMs)}.`}
+          loading={loading}
+        />
+        <Kpi
+          label="Success rate"
+          value={current ? (current.requests ? formatPercent(1 - current.errorRate) : '—') : '—'}
+          current={current ? 1 - current.errorRate : undefined}
+          previous={previous && previous.requests ? 1 - previous.errorRate : undefined}
+          better="up"
+          loading={loading}
+        />
+      </KpiGrid>
+
+      <div className="grid gap-6 xl:grid-cols-2">
+        <ChartCard
+          title="Requests over time"
+          description="LLM calls per interval, split by outcome."
+          loading={timeseries.isPending}
+          error={timeseries.error}
+          onRetry={() => timeseries.refetch()}
+          empty={timeseries.data?.points.every((point) => point.requests === 0)}
         >
-          {title}
-        </p>
-        <p className="mt-0.5 text-sm text-muted">{description}</p>
+          {timeseries.data ? <RequestsChart data={timeseries.data} /> : null}
+        </ChartCard>
+        <ChartCard
+          title="Token consumption"
+          description="Input and output tokens per interval."
+          loading={timeseries.isPending}
+          error={timeseries.error}
+          onRetry={() => timeseries.refetch()}
+          empty={timeseries.data?.points.every(
+            (point) => point.inputTokens + point.outputTokens === 0,
+          )}
+        >
+          {timeseries.data ? <TokensChart data={timeseries.data} /> : null}
+        </ChartCard>
       </div>
-      {!done && !pending && action ? <div className="shrink-0">{action}</div> : null}
-    </li>
-  );
-}
 
-/** The first project's keys tell us whether onboarding step 2 is done. */
-function KeyStep({ projectId }: { projectId: string }) {
-  const keys = useApiKeys(projectId);
-  const ingestion = useIngestionStatus(projectId);
-  const hasKey = (keys.data ?? []).some((key) => !key.revokedAt);
-  const hasTraces = (ingestion.data?.traceCount ?? 0) > 0;
-  return (
-    <>
-      <Step
-        pending={keys.isPending}
-        done={hasKey}
-        icon={KeyRound}
-        title="Create an API key"
-        description="Keys authenticate your application when it sends telemetry."
-        action={
-          <Link
-            href={`/projects/${projectId}`}
-            className={buttonVariants({ size: 'sm', variant: 'secondary' })}
-          >
-            Create key
-          </Link>
-        }
-      />
-      <Step
-        pending={ingestion.isPending}
-        done={hasTraces}
-        icon={Radio}
-        title="Send your first trace"
-        description={
-          hasTraces
-            ? `${ingestion.data?.traceCount ?? 0} traces received so far.`
-            : 'Install @tracemind/sdk or point an OpenTelemetry exporter at TraceMind. This step completes when the first trace arrives.'
-        }
-        action={
-          <Link
-            href={`/projects/${projectId}`}
-            className={buttonVariants({ size: 'sm', variant: 'secondary' })}
-          >
-            View setup
-          </Link>
-        }
-      />
-    </>
+      <div className="grid gap-6 xl:grid-cols-5">
+        <ChartCard
+          className="xl:col-span-2"
+          title="Cost by model"
+          description="Estimated spend in the selected range."
+          loading={breakdown.isPending}
+          error={breakdown.error}
+          onRetry={() => breakdown.refetch()}
+          empty={breakdown.data?.every((row) => Number(row.costUsd) === 0)}
+          height={200}
+        >
+          {breakdown.data ? <CostByModelChart rows={breakdown.data} colorFor={colorFor} /> : null}
+        </ChartCard>
+        <ChartCard
+          className="xl:col-span-3"
+          title="Models"
+          description="Usage, reliability, latency and cost per model."
+          loading={breakdown.isPending}
+          error={breakdown.error}
+          onRetry={() => breakdown.refetch()}
+          empty={breakdown.data?.length === 0}
+          height={200}
+        >
+          {breakdown.data ? (
+            <div className="-mx-3 -mb-3">
+              <ModelsTable rows={breakdown.data} colorFor={colorFor} />
+            </div>
+          ) : null}
+        </ChartCard>
+      </div>
+    </div>
   );
 }
 
 export default function OverviewPage() {
-  const router = useRouter();
-  const { current } = useOrganization();
-  const projects = useProjects(current.id);
-  const [creating, setCreating] = useState(false);
-  const firstProject = projects.data?.[0];
-  const canCreate = hasRoleAtLeast(current.role, 'admin');
-
   return (
-    <>
-      <PageHeader title="Overview" description={`Getting started with ${current.name}.`} />
-      <Card>
-        <CardHeader
-          title="Set up observability"
-          description="Three steps to see your first LLM trace."
-        />
-        {projects.isPending ? (
-          <LoadingState />
-        ) : projects.isError ? (
-          <ErrorState error={projects.error} onRetry={() => projects.refetch()} />
-        ) : (
-          <ol className="divide-y divide-border">
-            <Step
-              done={Boolean(firstProject)}
-              icon={FolderKanban}
-              title="Create a project"
-              description="One project per LLM application you want to observe."
-              action={
-                canCreate ? (
-                  <Button size="sm" onClick={() => setCreating(true)}>
-                    New project
-                  </Button>
-                ) : undefined
-              }
-            />
-            {firstProject ? (
-              <KeyStep projectId={firstProject.id} />
-            ) : (
-              <>
-                <Step
-                  done={false}
-                  icon={KeyRound}
-                  title="Create an API key"
-                  description="Available once you have a project."
-                />
-                <Step
-                  done={false}
-                  icon={Radio}
-                  title="Connect your application"
-                  description="Send telemetry with the API key."
-                />
-              </>
-            )}
-          </ol>
-        )}
-      </Card>
-      <CreateProjectDialog
-        organizationId={current.id}
-        open={creating}
-        onClose={() => setCreating(false)}
-        onCreated={(project) => router.push(`/projects/${project.id}`)}
-      />
-    </>
+    <Suspense fallback={<LoadingState />}>
+      <AnalyticsShell
+        title="Overview"
+        description="Health, usage and spend of your LLM applications."
+        onboarding={<GettingStarted />}
+      >
+        {(context) => <Dashboard {...context} />}
+      </AnalyticsShell>
+    </Suspense>
   );
 }
