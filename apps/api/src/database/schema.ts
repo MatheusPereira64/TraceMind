@@ -14,6 +14,7 @@ import {
   bigint,
   boolean,
   check,
+  customType,
   doublePrecision,
   index,
   integer,
@@ -38,6 +39,13 @@ import {
  *   and never needs a join to enforce isolation.
  * - Raw telemetry is preserved; aggregates are computed from it (see docs/ARCHITECTURE.md).
  */
+
+/** PostgreSQL full-text vector. Only ever written by generated columns. */
+const tsvector = customType<{ data: string }>({ dataType: () => 'tsvector' });
+
+/** Text of every string value inside a JSON payload (keys and numbers are skipped). */
+const jsonText = (column: string) =>
+  `jsonb_to_tsvector('simple', coalesce(${column}, 'null'::jsonb), '["string"]')`;
 
 const createdAt = () => timestamp('created_at', { withTimezone: true }).notNull().defaultNow();
 const updatedAt = () =>
@@ -223,6 +231,12 @@ export const traces = pgTable(
     /** False while only spans referencing this trace have arrived (no trace event yet). */
     isComplete: boolean('is_complete').notNull().default(true),
     isSimulated: boolean('is_simulated').notNull().default(false),
+    /** Full-text index over the name and the string values of input/output (Trace Explorer). */
+    search: tsvector('search').generatedAlwaysAs(
+      sql.raw(
+        `setweight(to_tsvector('simple', name), 'A') || ${jsonText('input')} || ${jsonText('output')}`,
+      ),
+    ),
     createdAt: createdAt(),
   },
   (t) => [
@@ -230,6 +244,7 @@ export const traces = pgTable(
     index('traces_project_started_idx').on(t.projectId, t.startedAt.desc()),
     index('traces_project_env_started_idx').on(t.projectId, t.environment, t.startedAt.desc()),
     index('traces_session_idx').on(t.projectId, t.sessionId),
+    index('traces_search_idx').using('gin', t.search),
   ],
 );
 
@@ -265,6 +280,16 @@ export const spans = pgTable(
     startedAt: timestamp('started_at', { withTimezone: true }).notNull(),
     endedAt: timestamp('ended_at', { withTimezone: true }),
     durationMs: integer('duration_ms'),
+    /** Full-text index over the span name and the string values of input/output. */
+    search: tsvector('search').generatedAlwaysAs(
+      sql.raw(
+        `setweight(to_tsvector('simple', name), 'A') || ${jsonText('input')} || ${jsonText('output')}`,
+      ),
+    ),
+    /** Fingerprint of the exact input (messages + system prompt), to find repeated prompts. */
+    inputHash: text('input_hash').generatedAlwaysAs(
+      sql.raw(`CASE WHEN input IS NULL THEN NULL ELSE md5(input::text) END`),
+    ),
     createdAt: createdAt(),
   },
   (t) => [
@@ -273,6 +298,10 @@ export const spans = pgTable(
     index('spans_parent_idx').on(t.parentSpanId),
     index('spans_project_started_idx').on(t.projectId, t.startedAt.desc()),
     index('spans_project_model_started_idx').on(t.projectId, t.model, t.startedAt.desc()),
+    index('spans_search_idx').using('gin', t.search),
+    index('spans_project_input_hash_idx')
+      .on(t.projectId, t.inputHash)
+      .where(sql`${t.kind} = 'llm'`),
   ],
 );
 
@@ -377,6 +406,42 @@ export const evaluations = pgTable(
       .on(t.projectId, t.externalId)
       .where(sql`${t.externalId} IS NOT NULL`),
     check('evaluations_thumbs_score_ck', sql`${t.kind} <> 'thumbs' OR ${t.score} IN (0, 1)`),
+  ],
+);
+
+/**
+ * Evaluation criteria a project scores against. Evaluations may use any criterion name (the SDK
+ * can send new ones freely); a definition adds a description, a scale or labels, and makes the
+ * criterion available for manual scoring in the UI.
+ */
+export const evaluationCriteria = pgTable(
+  'evaluation_criteria',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    projectId: uuid('project_id')
+      .notNull()
+      .references(() => projects.id, { onDelete: 'cascade' }),
+    /** Machine name, matches `evaluations.criterion`. */
+    name: text('name').notNull(),
+    description: text('description'),
+    kind: evaluationKind('kind').notNull(),
+    /** numeric: inclusive scale; ignored for other kinds. */
+    minScore: doublePrecision('min_score'),
+    maxScore: doublePrecision('max_score'),
+    /** categorical: allowed labels. */
+    labels: text('labels')
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    uniqueIndex('evaluation_criteria_project_name_uq').on(t.projectId, t.name),
+    check(
+      'evaluation_criteria_scale_ck',
+      sql`${t.minScore} IS NULL OR ${t.maxScore} IS NULL OR ${t.minScore} < ${t.maxScore}`,
+    ),
   ],
 );
 

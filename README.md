@@ -11,17 +11,25 @@ TypeScript SDK and OpenTelemetry support, backed by PostgreSQL and Redis.
 <sub>Screenshots use the bundled demo project, which contains **simulated** telemetry of an AI support
 agent (see [Demo](#demo)). Costs are estimated from the providers' published list prices.</sub>
 
-> **Status:** Phases 1–3 are complete — multi-tenant foundation, telemetry ingestion (REST + OTLP),
-> TypeScript SDK with OpenAI instrumentation, sensitive-data redaction, and analytics for usage,
-> latency percentiles, costs and errors. The trace explorer is next. See the
-> [delivery plan](docs/ARCHITECTURE.md#8-delivery-plan).
+> **Status:** Phases 1–4 are complete — multi-tenant foundation, telemetry ingestion (REST + OTLP),
+> TypeScript SDK with OpenAI instrumentation, sensitive-data redaction, analytics for usage, latency
+> percentiles, costs and errors, a trace explorer, prompt history and quality evaluations.
+> Production hardening is next. See the [delivery plan](docs/ARCHITECTURE.md#9-delivery-plan).
 
 ## What you get
 
-|                                                                                                                                                                        |                                                                                                                                                                                                                             |
-| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Latency** — exact p50/p95/p99 per interval, latency distribution and the slowest calls. ![Latency analytics](docs/screenshots/analytics.png)                         | **Costs** — spend per model over time, input vs output vs cached tokens, prompt-cache savings and the most expensive requests, priced from a versioned registry with sources. ![Cost analytics](docs/screenshots/costs.png) |
-| **Errors** — rate limits, timeouts, provider errors and failed tool calls over time, with the trace of every failure. ![Error monitoring](docs/screenshots/errors.png) | **Ingestion you can trust** — per-event validation, idempotent upserts, out-of-order spans, retries with a dead letter, and masking of API keys, tokens, card numbers and emails before anything is stored.                 |
+**Trace Explorer** — every request end to end: a timeline of nested LLM, retrieval and tool spans,
+with the prompt, completion, model configuration, tokens, cost and errors of each one, and quality
+scores right next to the answer.
+
+![Trace Explorer: span timeline with the selected LLM call's prompt, usage, cost and feedback](docs/screenshots/trace-explorer.png)
+
+|                                                                                                                                                                                                             |                                                                                                                                                                                                                             |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Latency** — exact p50/p95/p99 per interval, latency distribution and the slowest calls. ![Latency analytics](docs/screenshots/analytics.png)                                                              | **Costs** — spend per model over time, input vs output vs cached tokens, prompt-cache savings and the most expensive requests, priced from a versioned registry with sources. ![Cost analytics](docs/screenshots/costs.png) |
+| **Errors** — rate limits, timeouts, provider errors and failed tool calls over time, with the trace of every failure. ![Error monitoring](docs/screenshots/errors.png)                                      | **Evaluations** — user feedback, reviewer scores and custom criteria (thumbs, numeric scales, labels) with quality trends per criterion. ![Quality evaluations](docs/screenshots/evaluations.png)                           |
+| **Traces** — full-text search across prompts and responses, filters by status, duration, user and model, keyset pagination. ![Trace list](docs/screenshots/traces.png)                                      | **Prompts** — every LLM call with its prompt and answer, side-by-side comparison with word diffs, and repeated prompts that could be cached. ![Repeated prompts](docs/screenshots/prompts.png)                              |
+| **Ingestion you can trust** — per-event validation, idempotent upserts, out-of-order spans, retries with a dead letter, and masking of API keys, tokens, card numbers and emails before anything is stored. |                                                                                                                                                                                                                             |
 
 ## Stack
 
@@ -128,6 +136,10 @@ docs              Architecture, API contracts and decision records
 - **Versioned model pricing as data.** Prices live in a reviewed JSON registry with official sources and
   dated windows; costs resolve against the price valid when the call happened, use exact decimal
   arithmetic, and are recomputed when prices change ([ADR-007](docs/adr/007-price-registry.md)).
+- **Search without another datastore.** Generated, GIN-indexed `tsvector` columns over prompts and
+  responses give full-text search in PostgreSQL; keyset pagination keeps deep pages fast.
+- **Quality as data, not configuration.** Scores from users, code and reviewers share one table;
+  criteria definitions are optional and validate manual scores ([ADR-008](docs/adr/008-evaluations.md)).
 - **Correct percentiles.** p50/p95/p99 are computed over the exact filtered set per interval, never
   averaged across buckets; buckets follow the viewer's time zone.
 - **Tenant isolation by construction.** Every telemetry row carries `project_id`; every route passes an

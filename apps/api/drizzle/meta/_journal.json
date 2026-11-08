@@ -22,6 +22,13 @@
       "when": 1793894158084,
       "tag": "0002_ingestion",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1794163779951,
+      "tag": "0003_explorer",
+      "breakpoints": true
     }
   ]
 }

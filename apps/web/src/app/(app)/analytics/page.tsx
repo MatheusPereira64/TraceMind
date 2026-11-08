@@ -109,7 +109,7 @@ function Performance({ project, query }: AnalyticsContext) {
         >
           {performance.data ? (
             <div className="-mx-3 -mb-3">
-              <SlowestTable rows={performance.data.slowest} />
+              <SlowestTable rows={performance.data.slowest} projectId={project.id} />
             </div>
           ) : null}
         </ChartCard>

@@ -3,10 +3,13 @@
 import {
   Activity,
   CircleDollarSign,
+  ClipboardCheck,
   FolderKanban,
+  GitBranch,
   LayoutDashboard,
   LogOut,
   Menu,
+  MessagesSquare,
   OctagonAlert,
   Settings,
   X,
@@ -34,8 +37,11 @@ interface NavItem {
  */
 export const NAV_ITEMS: NavItem[] = [
   { href: '/overview', label: 'Overview', icon: LayoutDashboard },
+  { href: '/traces', label: 'Traces', icon: GitBranch },
+  { href: '/prompts', label: 'Prompts', icon: MessagesSquare },
   { href: '/analytics', label: 'Analytics', icon: Activity },
   { href: '/costs', label: 'Costs', icon: CircleDollarSign },
+  { href: '/evaluations', label: 'Evaluations', icon: ClipboardCheck },
   { href: '/errors', label: 'Errors', icon: OctagonAlert },
   { href: '/projects', label: 'Projects', icon: FolderKanban },
   { href: '/settings', label: 'Settings', icon: Settings },

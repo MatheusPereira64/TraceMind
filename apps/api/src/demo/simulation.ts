@@ -387,7 +387,8 @@ export function simulateConversation(options: SimulationOptions): IngestEvent[] 
       traceId,
       criterion: 'user_feedback',
       kind: 'thumbs',
-      score: random.next() < 0.86 ? 1 : 0,
+      // Users notice slow answers: satisfaction drops while the slow deploy is live.
+      score: random.next() < (latencyFactor > 1 ? 0.64 : 0.87) ? 1 : 0,
     });
   }
   if (!failed && random.next() < 0.06) {
@@ -399,6 +400,17 @@ export function simulateConversation(options: SimulationOptions): IngestEvent[] 
       criterion: 'helpfulness',
       kind: 'numeric',
       score: Math.round(Math.min(1, Math.max(0.2, random.logNormal(0.82, 0.12))) * 100) / 100,
+    });
+  }
+  if (!failed && random.next() < 0.08) {
+    const roll = random.next();
+    events.push({
+      type: 'evaluation',
+      id: `${traceId}:resolution`,
+      traceId,
+      criterion: 'resolution',
+      kind: 'categorical',
+      label: roll < 0.76 ? 'resolved' : roll < 0.93 ? 'partially_resolved' : 'unresolved',
     });
   }
   return events;

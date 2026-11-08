@@ -120,7 +120,7 @@ function Costs({ project, query, dimensions }: AnalyticsContext) {
         >
           {data ? (
             <div className="-mx-3 -mb-3">
-              <TopRequestsTable rows={data.topRequests} />
+              <TopRequestsTable rows={data.topRequests} projectId={project.id} />
             </div>
           ) : null}
         </ChartCard>

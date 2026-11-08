@@ -24,6 +24,8 @@ export interface AnalyticsContext {
   filters: AnalyticsFilters;
   query: string;
   dimensions: DimensionsDto;
+  /** Updates URL search params (filters, search, tabs) without scrolling. */
+  update: (changes: Record<string, string | undefined>) => void;
 }
 
 const selectClass =
@@ -271,7 +273,7 @@ export function AnalyticsShell({
           </Card>
         ))
       ) : query ? (
-        children({ project, filters, query, dimensions: dimensions.data })
+        children({ project, filters, query, dimensions: dimensions.data, update })
       ) : (
         <Card>
           <p className="px-5 py-8 text-center text-sm text-muted">Choose a valid date range.</p>

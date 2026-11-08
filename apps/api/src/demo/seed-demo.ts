@@ -9,7 +9,7 @@
  * dashboard labels them; re-running replaces the previous demo telemetry.
  */
 import { DEFAULT_REDACTION_SETTINGS, type IngestEvent } from '@tracemind/shared';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -87,6 +87,33 @@ async function ensureWorkspace(db: Database, password: string) {
       })
       .returning();
   }
+  // Criteria definitions: what each score means, its scale and labels (shown on Evaluations).
+  await db
+    .insert(schema.evaluationCriteria)
+    .values([
+      {
+        projectId: project!.id,
+        name: 'user_feedback',
+        description: 'Thumbs up/down from the customer at the end of the conversation.',
+        kind: 'thumbs',
+      },
+      {
+        projectId: project!.id,
+        name: 'helpfulness',
+        description: 'Offline review score of the final answer, from 0 (useless) to 1 (perfect).',
+        kind: 'numeric',
+        minScore: 0,
+        maxScore: 1,
+      },
+      {
+        projectId: project!.id,
+        name: 'resolution',
+        description: 'Whether the conversation solved the customer problem.',
+        kind: 'categorical',
+        labels: ['resolved', 'partially_resolved', 'unresolved'],
+      },
+    ])
+    .onConflictDoNothing();
   return { projectId: project!.id };
 }
 
@@ -165,6 +192,13 @@ async function main(): Promise<void> {
         );
       }
     }
+    // Simulated feedback is given when the conversation ends, not when the seed ran.
+    await db.execute(sql`
+      UPDATE evaluations v
+      SET created_at = coalesce(t.ended_at, t.started_at) + interval '45 seconds'
+      FROM traces t
+      WHERE t.id = v.trace_id AND v.project_id = ${projectId}
+    `);
     console.log(
       `\nDemo ready: ${conversations} simulated conversations (${events} events) over ${days} days.`,
     );

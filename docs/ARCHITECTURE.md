@@ -11,8 +11,9 @@ raw data and derives cost, latency and quality analytics from it.
 - [5. REST API contracts](#5-rest-api-contracts)
 - [6. Ingestion pipeline](#6-ingestion-pipeline)
 - [7. Analytics and cost model](#7-analytics-and-cost-model)
-- [8. Delivery plan](#8-delivery-plan)
-- [9. Decision records](#9-decision-records)
+- [8. Trace Explorer, prompt history and evaluations](#8-trace-explorer-prompt-history-and-evaluations)
+- [9. Delivery plan](#9-delivery-plan)
+- [10. Decision records](#10-decision-records)
 
 ## 1. System overview
 
@@ -95,21 +96,23 @@ erDiagram
   model_pricing ||--o{ token_usage : "priced by"
   traces ||--o{ errors : ""
   traces ||--o{ evaluations : ""
+  projects ||--o{ evaluation_criteria : ""
 ```
 
-| Table                                   | Notes                                                                                                                                                           |
-| --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `users`                                 | Email stored lowercased (unique). Password as scrypt hash with embedded parameters.                                                                             |
-| `organizations`, `organization_members` | Tenancy root. Role enum: `owner > admin > member > viewer`.                                                                                                     |
-| `projects`                              | Unique slug per org, `retention_days`, `is_demo` (simulated data is always labelled), soft-archive.                                                             |
-| `api_keys`                              | SHA-256 of the key, non-secret `prefix`, default `environment`, expiry, revocation, `last_used_at`.                                                             |
-| `traces`                                | `(project_id, external_id)` unique → idempotent ingestion. Indexed by `(project_id, started_at desc)` and `(project_id, environment, started_at desc)`.         |
-| `spans`                                 | Self-referencing `parent_span_id` for nested LLM/tool/retrieval operations; prompt/completion in `input`/`output` (after redaction).                            |
-| `token_usage`                           | 1:1 with LLM spans. `estimated_cost_usd` (TraceMind) and `reported_cost_usd` (provider) kept apart, `pricing_id` records which price row produced the estimate. |
-| `model_providers`, `model_pricing`      | Versioned price list with `[effective_from, effective_to)`; costs resolve against the price valid at span start.                                                |
-| `errors`                                | Classified (`rate_limit`, `timeout`, `provider_error`, …), linked to trace and span.                                                                            |
-| `evaluations`                           | Thumbs/numeric/categorical, `source` = `human`/`api`/`llm_judge` (prepared for LLM-as-a-judge).                                                                 |
-| `ingestion_failures`                    | Rejected events and batches that exhausted retries, with the reason (redacted payload), shown in the dashboard.                                                 |
+| Table                                   | Notes                                                                                                                                                                                                                                                |
+| --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `users`                                 | Email stored lowercased (unique). Password as scrypt hash with embedded parameters.                                                                                                                                                                  |
+| `organizations`, `organization_members` | Tenancy root. Role enum: `owner > admin > member > viewer`.                                                                                                                                                                                          |
+| `projects`                              | Unique slug per org, `retention_days`, `is_demo` (simulated data is always labelled), soft-archive.                                                                                                                                                  |
+| `api_keys`                              | SHA-256 of the key, non-secret `prefix`, default `environment`, expiry, revocation, `last_used_at`.                                                                                                                                                  |
+| `traces`                                | `(project_id, external_id)` unique → idempotent ingestion. Indexed by `(project_id, started_at desc)` and `(project_id, environment, started_at desc)`.                                                                                              |
+| `spans`                                 | Self-referencing `parent_span_id` for nested LLM/tool/retrieval operations; prompt/completion in `input`/`output` (after redaction). Generated `search` (tsvector, GIN) and `input_hash` (md5 of the input) columns for search and repeated prompts. |
+| `token_usage`                           | 1:1 with LLM spans. `estimated_cost_usd` (TraceMind) and `reported_cost_usd` (provider) kept apart, `pricing_id` records which price row produced the estimate.                                                                                      |
+| `model_providers`, `model_pricing`      | Versioned price list with `[effective_from, effective_to)`; costs resolve against the price valid at span start.                                                                                                                                     |
+| `errors`                                | Classified (`rate_limit`, `timeout`, `provider_error`, …), linked to trace and span.                                                                                                                                                                 |
+| `evaluations`                           | Thumbs/numeric/categorical, `source` = `human`/`api`/`llm_judge` (prepared for LLM-as-a-judge). Reviewer scores are upserted per user, target and criterion.                                                                                         |
+| `evaluation_criteria`                   | Optional definition per criterion name: description, kind, numeric scale or allowed labels; manual scores are validated against it (ADR-008).                                                                                                        |
+| `ingestion_failures`                    | Rejected events and batches that exhausted retries, with the reason (redacted payload), shown in the dashboard.                                                                                                                                      |
 
 **Retention & scale.** A scheduled job (Phase 5) deletes telemetry older than each project's
 `retention_days`. Time-range indexes cover the dashboard queries for the expected MVP volume; if a
@@ -146,42 +149,51 @@ Base path `/v1`. Request/response types live in `packages/shared/src/contracts.t
 
 ### Implemented
 
-| Method & path                                       | Auth    | Role   | Description                                                             |
-| --------------------------------------------------- | ------- | ------ | ----------------------------------------------------------------------- |
-| `POST /v1/auth/register`                            | —       | —      | Creates user + organization (owner). Sets session cookie.               |
-| `POST /v1/auth/login`                               | —       | —      | Sets session cookie, returns `SessionDto`.                              |
-| `POST /v1/auth/logout`                              | —       | —      | Clears session cookie.                                                  |
-| `GET /v1/auth/me`                                   | session | —      | Current user and memberships.                                           |
-| `GET /v1/organizations`                             | session | —      | Organizations the user belongs to.                                      |
-| `POST /v1/organizations`                            | session | —      | Creates an organization; caller becomes owner.                          |
-| `GET /v1/organizations/:orgId/projects`             | session | viewer | `?includeArchived=true` to include archived.                            |
-| `POST /v1/organizations/:orgId/projects`            | session | admin  | Slug derived from name when omitted.                                    |
-| `GET /v1/projects/:projectId`                       | session | viewer |                                                                         |
-| `PATCH /v1/projects/:projectId`                     | session | admin  | `name`, `description`, `retentionDays`, `redaction`.                    |
-| `GET /v1/projects/:projectId/ingestion`             | session | viewer | Trace/span counts, last received, recent failures.                      |
-| `DELETE /v1/projects/:projectId`                    | session | admin  | Soft archive; keys stop working.                                        |
-| `GET /v1/projects/:projectId/api-keys`              | session | viewer | Never includes secrets.                                                 |
-| `POST /v1/projects/:projectId/api-keys`             | session | admin  | Returns `key` once.                                                     |
-| `DELETE /v1/projects/:projectId/api-keys/:keyId`    | session | admin  | Revokes (idempotent).                                                   |
-| `GET /v1/ingest/whoami`                             | API key | —      | Lets SDKs validate configuration.                                       |
-| `POST /v1/ingest/batch`                             | API key | —      | Up to 1000 trace/span/evaluation events → `202`.                        |
-| `POST /v1/ingest/otlp/v1/traces`                    | API key | —      | OTLP/HTTP JSON with GenAI semantic conventions.                         |
-| `GET /v1/projects/:projectId/analytics/overview`    | session | viewer | Totals, error rate, tokens, cost, avg/p50/p95/p99, vs previous period.  |
-| `GET /v1/projects/:projectId/analytics/timeseries`  | session | viewer | Gap-free buckets (hour/6h/day/week) in the caller time zone.            |
-| `GET /v1/projects/:projectId/analytics/breakdown`   | session | viewer | `?by=model\|provider`: requests, errors, tokens, cost share, latency.   |
-| `GET /v1/projects/:projectId/analytics/costs`       | session | viewer | Input/cached/output split, cache savings, spend by model, top requests. |
-| `GET /v1/projects/:projectId/analytics/performance` | session | viewer | Latency histogram and slowest requests.                                 |
-| `GET /v1/projects/:projectId/analytics/errors`      | session | viewer | Counts by type, series, cursor-paginated list (`?type=`).               |
-| `GET /v1/projects/:projectId/analytics/dimensions`  | session | viewer | Environments, providers and models for filter controls.                 |
-| `GET /v1/pricing`                                   | session | —      | Model price registry with sources and validity windows.                 |
-| `GET /health`, `GET /health/ready`                  | —       | —      | Liveness; readiness checks Postgres and Redis.                          |
+| Method & path                                              | Auth    | Role           | Description                                                             |
+| ---------------------------------------------------------- | ------- | -------------- | ----------------------------------------------------------------------- |
+| `POST /v1/auth/register`                                   | —       | —              | Creates user + organization (owner). Sets session cookie.               |
+| `POST /v1/auth/login`                                      | —       | —              | Sets session cookie, returns `SessionDto`.                              |
+| `POST /v1/auth/logout`                                     | —       | —              | Clears session cookie.                                                  |
+| `GET /v1/auth/me`                                          | session | —              | Current user and memberships.                                           |
+| `GET /v1/organizations`                                    | session | —              | Organizations the user belongs to.                                      |
+| `POST /v1/organizations`                                   | session | —              | Creates an organization; caller becomes owner.                          |
+| `GET /v1/organizations/:orgId/projects`                    | session | viewer         | `?includeArchived=true` to include archived.                            |
+| `POST /v1/organizations/:orgId/projects`                   | session | admin          | Slug derived from name when omitted.                                    |
+| `GET /v1/projects/:projectId`                              | session | viewer         |                                                                         |
+| `PATCH /v1/projects/:projectId`                            | session | admin          | `name`, `description`, `retentionDays`, `redaction`.                    |
+| `GET /v1/projects/:projectId/ingestion`                    | session | viewer         | Trace/span counts, last received, recent failures.                      |
+| `DELETE /v1/projects/:projectId`                           | session | admin          | Soft archive; keys stop working.                                        |
+| `GET /v1/projects/:projectId/api-keys`                     | session | viewer         | Never includes secrets.                                                 |
+| `POST /v1/projects/:projectId/api-keys`                    | session | admin          | Returns `key` once.                                                     |
+| `DELETE /v1/projects/:projectId/api-keys/:keyId`           | session | admin          | Revokes (idempotent).                                                   |
+| `GET /v1/ingest/whoami`                                    | API key | —              | Lets SDKs validate configuration.                                       |
+| `POST /v1/ingest/batch`                                    | API key | —              | Up to 1000 trace/span/evaluation events → `202`.                        |
+| `POST /v1/ingest/otlp/v1/traces`                           | API key | —              | OTLP/HTTP JSON with GenAI semantic conventions.                         |
+| `GET /v1/projects/:projectId/analytics/overview`           | session | viewer         | Totals, error rate, tokens, cost, avg/p50/p95/p99, vs previous period.  |
+| `GET /v1/projects/:projectId/analytics/timeseries`         | session | viewer         | Gap-free buckets (hour/6h/day/week) in the caller time zone.            |
+| `GET /v1/projects/:projectId/analytics/breakdown`          | session | viewer         | `?by=model\|provider`: requests, errors, tokens, cost share, latency.   |
+| `GET /v1/projects/:projectId/analytics/costs`              | session | viewer         | Input/cached/output split, cache savings, spend by model, top requests. |
+| `GET /v1/projects/:projectId/analytics/performance`        | session | viewer         | Latency histogram and slowest requests.                                 |
+| `GET /v1/projects/:projectId/analytics/errors`             | session | viewer         | Counts by type, series, cursor-paginated list (`?type=`).               |
+| `GET /v1/projects/:projectId/analytics/dimensions`         | session | viewer         | Environments, providers and models for filter controls.                 |
+| `GET /v1/pricing`                                          | session | —              | Model price registry with sources and validity windows.                 |
+| `GET /v1/projects/:projectId/traces`                       | session | viewer         | Keyset pagination; `q` (full text or exact id), status, duration, user. |
+| `GET /v1/projects/:projectId/traces/:traceId`              | session | viewer         | Span tree with usage, errors and evaluations (client trace id).         |
+| `GET /v1/projects/:projectId/generations`                  | session | viewer         | LLM calls with prompt/response previews; `q`, `status`, `inputHash`.    |
+| `GET /v1/projects/:projectId/generations/:uid`             | session | viewer         | One LLM call in full (used by comparisons).                             |
+| `GET /v1/projects/:projectId/prompts/repeated`             | session | viewer         | Identical inputs sent more than once, with distinct answers and cost.   |
+| `GET/POST /v1/projects/:projectId/evaluation-criteria`     | session | viewer / admin | List / define criteria (`PUT`, `DELETE …/:id` for admins).              |
+| `POST /v1/projects/:projectId/traces/:traceId/evaluations` | session | member         | Reviewer score for a trace or span (upsert per user).                   |
+| `DELETE /v1/projects/:projectId/evaluations/:id`           | session | member         | Authors delete their own; admins any.                                   |
+| `GET /v1/projects/:projectId/evaluations`                  | session | viewer         | Cursor-paginated list; `criterion`, `source`.                           |
+| `GET /v1/projects/:projectId/evaluations/summary`          | session | viewer         | Per criterion: count, average, thumbs split, labels, gap-filled trend.  |
+| `GET /health`, `GET /health/ready`                         | —       | —              | Liveness; readiness checks Postgres and Redis.                          |
 
 ### Planned
 
-| Phase | Endpoints                                                                                                                      |
-| ----- | ------------------------------------------------------------------------------------------------------------------------------ |
-| 4     | `GET /v1/projects/:id/traces` (cursor pagination, search), `GET /v1/traces/:id` (span tree), `POST /v1/traces/:id/evaluations` |
-| 5     | Members & invitations, pricing administration, OpenAPI document generated from the Zod schemas                                 |
+| Phase | Endpoints                                                                                                             |
+| ----- | --------------------------------------------------------------------------------------------------------------------- |
+| 5     | Members & invitations, pricing administration, OpenAPI document generated from the Zod schemas, LLM-as-a-Judge runner |
 
 ## 6. Ingestion pipeline
 
@@ -250,19 +262,30 @@ across three providers, prompt caching, a rate-limit incident and a slow deploy,
 uses the real redaction and persistence code; every trace is `is_simulated` and the project
 `is_demo`, labelled "simulated data" in the UI.
 
-## 8. Delivery plan
+## 8. Trace Explorer, prompt history and evaluations
+
+| Concern          | Approach                                                                                                                                                                                                     |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Pagination       | Keyset on `(started_at, id)` with opaque cursors, so page 500 costs the same as page 1 and new data never shifts pages.                                                                                      |
+| Search           | Generated `tsvector` columns over the names and the string values of inputs/outputs (`jsonb_to_tsvector`, `simple` config: no stemming, works for any language), GIN-indexed; `websearch_to_tsquery` syntax. |
+| Span tree        | Returned flat with client parent ids; the dashboard builds the depth-first timeline. Spans whose parent has not arrived render as roots, so partial traces are still inspectable.                            |
+| Repeated prompts | Generated `input_hash = md5(input::text)` (jsonb text is canonical) indexed per project; groups with one distinct answer are flagged as cacheable with the potential saving.                                 |
+| Comparisons      | Two calls side by side: configuration and usage table, word-level LCS diff of prompts and responses.                                                                                                         |
+| Evaluations      | Bucketed by **trace start**, so quality is attributed to when the answer was produced; reviewer scores are idempotent per user/target/criterion and validated against criterion definitions (ADR-008).       |
+
+## 9. Delivery plan
 
 | Phase                    | Scope                                                                                                    | Status  |
 | ------------------------ | -------------------------------------------------------------------------------------------------------- | ------- |
 | 1 · Foundation           | Monorepo, Docker, full schema + migrations, auth, organizations, projects, API keys, dashboard shell, CI | ✅ Done |
 | 2 · Telemetry            | Ingestion API + queue, trace/span persistence, OTLP endpoint, TypeScript SDK, redaction                  | ✅ Done |
 | 3 · Analytics            | Overview metrics, tokens, costs + pricing registry, p50/p95/p99, error monitoring, demo dataset          | ✅ Done |
-| 4 · Developer experience | Trace explorer (span tree/timeline), prompt history and comparison, evaluations, search                  | Next    |
-| 5 · Production readiness | Members/invitations, retention job, OpenAPI, load tests, deployment guide                                |         |
+| 4 · Developer experience | Trace explorer (span tree/timeline), prompt history and comparison, evaluations, search                  | ✅ Done |
+| 5 · Production readiness | Members/invitations, retention job, OpenAPI, LLM-as-a-Judge, load tests, deployment guide                | Next    |
 
 Navigation items in the dashboard appear as each section ships, rather than as empty placeholders.
 
-## 9. Decision records
+## 10. Decision records
 
 See [`docs/adr`](./adr):
 
@@ -273,3 +296,4 @@ See [`docs/adr`](./adr):
 5. [Preserve raw telemetry; version prices; defer partitioning](./adr/005-telemetry-storage.md)
 6. [Asynchronous, idempotent ingestion pipeline](./adr/006-ingestion-pipeline.md)
 7. [Model price registry as versioned data](./adr/007-price-registry.md)
+8. [Evaluations: one table for every source, optional criteria](./adr/008-evaluations.md)

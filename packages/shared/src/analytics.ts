@@ -138,6 +138,7 @@ export interface CostsDto {
   topRequests: Array<{
     traceId: string;
     traceName: string;
+    spanId: string;
     spanName: string;
     provider: string | null;
     model: string | null;
@@ -153,6 +154,7 @@ export interface PerformanceDto {
   slowest: Array<{
     traceId: string;
     traceName: string;
+    spanId: string;
     spanName: string;
     model: string | null;
     durationMs: number;
@@ -172,6 +174,7 @@ export interface ErrorItem {
   occurredAt: string;
   traceId: string;
   traceName: string;
+  spanId: string | null;
   spanName: string | null;
 }
 

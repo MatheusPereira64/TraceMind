@@ -4,7 +4,9 @@ export const TEST_DATABASE_URL =
 
 process.env.NODE_ENV = 'test';
 process.env.DATABASE_URL = TEST_DATABASE_URL;
-process.env.REDIS_URL ??= 'redis://localhost:6379';
+// A separate logical database keeps the test queue away from a dev server running on the same
+// Redis (its worker would otherwise pick up test jobs and write them to the dev database).
+process.env.REDIS_URL = process.env.REDIS_URL_TEST ?? 'redis://localhost:6379/15';
 process.env.JWT_SECRET = 'test-secret-test-secret-test-secret-0123';
 process.env.LOG_LEVEL = 'silent';
 process.env.WEB_ORIGIN = 'http://localhost:3000';

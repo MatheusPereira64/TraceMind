@@ -5,6 +5,8 @@ import { LoggerModule } from 'nestjs-pino';
 import { createHash, randomUUID } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { AnalyticsModule } from './analytics/analytics.module.js';
+import { EvaluationsModule } from './evaluations/evaluations.module.js';
+import { TracesModule } from './traces/traces.module.js';
 import { ApiKeysModule } from './api-keys/api-keys.module.js';
 import { AuthModule } from './auth/auth.module.js';
 import { AUTH_RATE_LIMITED, INGEST_RATE_LIMITED } from './auth/decorators.js';
@@ -97,6 +99,8 @@ const REQUEST_ID = /^[A-Za-z0-9._-]{1,128}$/;
     ApiKeysModule,
     IngestionModule,
     AnalyticsModule,
+    TracesModule,
+    EvaluationsModule,
   ],
   controllers: [HealthController],
   providers: [

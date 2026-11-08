@@ -8,6 +8,7 @@ import type {
   PricingRowDto,
 } from '@tracemind/shared';
 import { ExternalLink } from 'lucide-react';
+import Link from 'next/link';
 import type { ReactNode } from 'react';
 import {
   formatMs,
@@ -17,6 +18,7 @@ import {
   formatUsd,
 } from '@/lib/format';
 import { cn } from '@/lib/utils';
+import { traceHref } from '../explorer/project-scope';
 import { Badge } from '../ui/card';
 import { ERROR_TYPE_LABEL, errorTypeColor } from './charts';
 
@@ -56,11 +58,26 @@ function Table({
 const cell = 'px-3 py-2.5 first:pl-5 last:pr-5';
 const numCell = cn(cell, 'whitespace-nowrap text-right font-mono text-xs tabular-nums');
 
-/** Copyable trace id: the Trace Explorer (next release) will turn this into a link. */
-function TraceRef({ id, name }: { id: string; name: string }) {
+/** Link to the trace, opened on the span the row is about. */
+function TraceRef({
+  projectId,
+  id,
+  spanId,
+  name,
+}: {
+  projectId: string;
+  id: string;
+  spanId?: string | null;
+  name: string;
+}) {
   return (
     <span className="block min-w-0">
-      <span className="block truncate">{name}</span>
+      <Link
+        href={traceHref(projectId, id, spanId ?? undefined)}
+        className="block truncate hover:text-primary"
+      >
+        {name}
+      </Link>
       <span className="block truncate font-mono text-[11px] text-subtle" title={id}>
         {id}
       </span>
@@ -120,13 +137,24 @@ export function ModelsTable({
   );
 }
 
-export function TopRequestsTable({ rows }: { rows: CostsDto['topRequests'] }) {
+export function TopRequestsTable({
+  rows,
+  projectId,
+}: {
+  rows: CostsDto['topRequests'];
+  projectId: string;
+}) {
   return (
     <Table head={['Request', 'Model', 'Tokens in / out', 'Started', 'Est. cost']} minWidth={560}>
       {rows.map((row, index) => (
         <tr key={`${row.traceId}-${index}`}>
           <td className={cn(cell, 'max-w-56')}>
-            <TraceRef id={row.traceId} name={`${row.traceName} › ${row.spanName}`} />
+            <TraceRef
+              projectId={projectId}
+              id={row.traceId}
+              spanId={row.spanId}
+              name={`${row.traceName} › ${row.spanName}`}
+            />
           </td>
           <td className={cn(cell, 'whitespace-nowrap text-right text-xs')}>{row.model ?? '—'}</td>
           <td className={numCell}>
@@ -142,13 +170,24 @@ export function TopRequestsTable({ rows }: { rows: CostsDto['topRequests'] }) {
   );
 }
 
-export function SlowestTable({ rows }: { rows: PerformanceDto['slowest'] }) {
+export function SlowestTable({
+  rows,
+  projectId,
+}: {
+  rows: PerformanceDto['slowest'];
+  projectId: string;
+}) {
   return (
     <Table head={['Request', 'Model', 'Status', 'Started', 'Duration']} minWidth={560}>
       {rows.map((row, index) => (
         <tr key={`${row.traceId}-${index}`}>
           <td className={cn(cell, 'max-w-56')}>
-            <TraceRef id={row.traceId} name={`${row.traceName} › ${row.spanName}`} />
+            <TraceRef
+              projectId={projectId}
+              id={row.traceId}
+              spanId={row.spanId}
+              name={`${row.traceName} › ${row.spanName}`}
+            />
           </td>
           <td className={cn(cell, 'whitespace-nowrap text-right text-xs')}>{row.model ?? '—'}</td>
           <td className={cn(cell, 'text-right')}>
@@ -164,7 +203,7 @@ export function SlowestTable({ rows }: { rows: PerformanceDto['slowest'] }) {
   );
 }
 
-export function ErrorsTable({ rows }: { rows: ErrorItem[] }) {
+export function ErrorsTable({ rows, projectId }: { rows: ErrorItem[]; projectId: string }) {
   return (
     <Table head={['Error', 'Type', 'Model', 'Request', 'When']} minWidth={760}>
       {rows.map((row) => (
@@ -190,6 +229,8 @@ export function ErrorsTable({ rows }: { rows: ErrorItem[] }) {
           <td className={cn(cell, 'whitespace-nowrap text-right text-xs')}>{row.model ?? '—'}</td>
           <td className={cn(cell, 'max-w-56 text-right')}>
             <TraceRef
+              projectId={projectId}
+              spanId={row.spanId}
               id={row.traceId}
               name={row.spanName ? `${row.traceName} › ${row.spanName}` : row.traceName}
             />

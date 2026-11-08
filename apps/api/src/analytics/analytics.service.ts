@@ -20,6 +20,18 @@ import type { Redis } from 'ioredis';
 import { ENV, type Env } from '../config/env.js';
 import { DATABASE, type Database } from '../database/database.module.js';
 import { REDIS } from '../redis/redis.module.js';
+import {
+  afterCursor,
+  iso,
+  llmSpanFilters,
+  num,
+  numOrNull,
+  paginate,
+  rows,
+  toRange,
+  type Range,
+  type Row,
+} from '../common/telemetry-sql.js';
 
 /**
  * Analytics over raw telemetry. Every number is computed from spans/token_usage/errors at query
@@ -35,18 +47,6 @@ import { REDIS } from '../redis/redis.module.js';
 /** Monday 2000-01-03 00:00: weekly buckets start on Mondays; hourly/daily on the hour/midnight. */
 const BUCKET_ORIGIN = '2000-01-03 00:00:00';
 const HISTOGRAM_EDGES_MS = [250, 500, 1_000, 2_000, 4_000, 8_000, 16_000, 32_000];
-
-type Row = Record<string, unknown>;
-
-const num = (value: unknown): number => (value === null || value === undefined ? 0 : Number(value));
-const numOrNull = (value: unknown): number | null =>
-  value === null || value === undefined ? null : Math.round(Number(value));
-const iso = (value: unknown): string => new Date(value as string | Date).toISOString();
-
-interface Range {
-  from: Date;
-  to: Date;
-}
 
 @Injectable()
 export class AnalyticsService {
@@ -241,7 +241,7 @@ export class AnalyticsService {
           ORDER BY 1, 2
         `),
         this.rows(sql`
-          SELECT t.external_id AS trace_id, t.name AS trace_name, s.name AS span_name, s.provider_id, s.model,
+          SELECT t.external_id AS trace_id, t.name AS trace_name, s.name AS span_name, s.external_id AS span_id, s.provider_id, s.model,
                  u.input_tokens, u.output_tokens, u.estimated_cost_usd::text AS cost, s.started_at
           ${this.fromLlmSpans(false)}
           WHERE ${where} AND u.estimated_cost_usd IS NOT NULL
@@ -268,6 +268,7 @@ export class AnalyticsService {
         topRequests: top.map((row) => ({
           traceId: String(row.trace_id),
           traceName: String(row.trace_name),
+          spanId: String(row.span_id),
           spanName: String(row.span_name),
           provider: (row.provider_id as string | null) ?? null,
           model: (row.model as string | null) ?? null,
@@ -294,7 +295,7 @@ export class AnalyticsService {
           GROUP BY 1
         `),
         this.rows(sql`
-          SELECT t.external_id AS trace_id, t.name AS trace_name, s.name AS span_name, s.model,
+          SELECT t.external_id AS trace_id, t.name AS trace_name, s.name AS span_name, s.external_id AS span_id, s.model,
                  s.duration_ms, s.status, s.started_at
           ${this.fromLlmSpans(false)}
           WHERE ${where} AND s.duration_ms IS NOT NULL
@@ -314,6 +315,7 @@ export class AnalyticsService {
         slowest: slowest.map((row) => ({
           traceId: String(row.trace_id),
           traceName: String(row.trace_name),
+          spanId: String(row.span_id),
           spanName: String(row.span_name),
           model: (row.model as string | null) ?? null,
           durationMs: num(row.duration_ms),
@@ -340,10 +342,7 @@ export class AnalyticsService {
     const where = sql.join(conditions, sql` AND `);
     const typeFilter = query.type ? sql` AND e.type = ${query.type}` : sql``;
 
-    const cursor = decodeCursor(query.cursor);
-    const page = cursor
-      ? sql` AND (e.occurred_at, e.id) < (${cursor.occurredAt}::timestamptz, ${cursor.id}::uuid)`
-      : sql``;
+    const page = afterCursor(sql`e.occurred_at`, sql`e.id`, query.cursor);
 
     const [byType, series, items] = await Promise.all([
       this.rows(sql`
@@ -360,7 +359,7 @@ export class AnalyticsService {
       `),
       this.rows(sql`
         SELECT e.id, e.type, e.message, e.code, e.http_status, e.provider_id, e.model, e.occurred_at,
-               t.external_id AS trace_id, t.name AS trace_name, s.name AS span_name
+               t.external_id AS trace_id, t.name AS trace_name, s.name AS span_name, s.external_id AS span_id
         FROM errors e
         JOIN traces t ON t.id = e.trace_id
         LEFT JOIN spans s ON s.id = e.span_id
@@ -370,9 +369,10 @@ export class AnalyticsService {
       `),
     ]);
 
-    const hasMore = items.length > query.limit;
-    const visible = items.slice(0, query.limit);
-    const last = visible.at(-1);
+    const { visible, nextCursor } = paginate(items, query.limit, (row) => ({
+      at: row.occurred_at,
+      id: row.id,
+    }));
     return {
       byType: byType.map((row) => ({ type: row.type as ErrorType, count: num(row.count) })),
       series: series.map((row) => ({
@@ -392,9 +392,10 @@ export class AnalyticsService {
         occurredAt: iso(row.occurred_at),
         traceId: String(row.trace_id),
         traceName: String(row.trace_name),
+        spanId: (row.span_id as string | null) ?? null,
         spanName: (row.span_name as string | null) ?? null,
       })),
-      nextCursor: hasMore && last ? encodeCursor(iso(last.occurred_at), String(last.id)) : null,
+      nextCursor,
     };
   }
 
@@ -433,7 +434,7 @@ export class AnalyticsService {
   /* ----------------------------------------------------------------- helpers */
 
   private range(query: AnalyticsQuery): Range {
-    return { from: new Date(query.from), to: new Date(query.to) };
+    return toRange(query);
   }
 
   private fromLlmSpans(withErrors: boolean): SQL {
@@ -446,16 +447,7 @@ export class AnalyticsService {
   }
 
   private spanFilters(projectId: string, query: AnalyticsQuery, range: Range): SQL {
-    const conditions: SQL[] = [
-      sql`s.project_id = ${projectId}`,
-      sql`s.kind = 'llm'`,
-      sql`s.started_at >= ${range.from.toISOString()}::timestamptz`,
-      sql`s.started_at < ${range.to.toISOString()}::timestamptz`,
-    ];
-    if (query.environment) conditions.push(sql`t.environment = ${query.environment}`);
-    if (query.provider) conditions.push(sql`s.provider_id = ${query.provider}`);
-    if (query.model) conditions.push(sql`s.model = ${query.model}`);
-    return sql.join(conditions, sql` AND `);
+    return llmSpanFilters(projectId, query, range);
   }
 
   /** Local-time bucket start (timestamp without time zone) for a timestamptz column. */
@@ -474,9 +466,8 @@ export class AnalyticsService {
     )`;
   }
 
-  private async rows(query: SQL): Promise<Row[]> {
-    const result = await this.db.execute(query);
-    return result.rows as Row[];
+  private rows(query: SQL): Promise<Row[]> {
+    return rows(this.db, query);
   }
 
   /** Short-lived Redis cache; analytics stay correct without it, so Redis errors are ignored. */
@@ -501,16 +492,4 @@ export class AnalyticsService {
     });
     return value;
   }
-}
-
-function encodeCursor(occurredAt: string, id: string): string {
-  return Buffer.from(`${occurredAt}|${id}`, 'utf8').toString('base64url');
-}
-
-function decodeCursor(cursor: string | undefined): { occurredAt: string; id: string } | null {
-  if (!cursor) return null;
-  const [occurredAt, id] = Buffer.from(cursor, 'base64url').toString('utf8').split('|');
-  if (!occurredAt || !id || Number.isNaN(Date.parse(occurredAt)) || !/^[0-9a-f-]{36}$/i.test(id))
-    return null;
-  return { occurredAt, id };
 }

@@ -131,7 +131,7 @@ function Errors({ project, query }: AnalyticsContext) {
         height={200}
       >
         <div className="-mx-3 -mb-3">
-          <ErrorsTable rows={items} />
+          <ErrorsTable rows={items} projectId={project.id} />
           {errors.hasNextPage ? (
             <div className="border-t border-border px-5 py-3 text-center">
               <Button
