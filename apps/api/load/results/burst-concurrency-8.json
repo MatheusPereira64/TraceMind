@@ -1,0 +1,45 @@
+{
+  "date": "2026-11-22T18:06:32.731Z",
+  "machine": {
+    "cpus": 2,
+    "cpuModel": "Intel(R) Xeon(R) Processor @ 2.30GHz",
+    "memoryGb": 8
+  },
+  "config": {
+    "connections": 20,
+    "durationSeconds": 10,
+    "rate": "max",
+    "tracesPerBatch": 10,
+    "spansPerTrace": 4,
+    "eventsPerBatch": 50
+  },
+  "http": {
+    "requests": 2493,
+    "requestsPerSecond": 249.3,
+    "latencyMs": {
+      "p50": 75,
+      "p90": 103,
+      "p99": 167,
+      "max": 314
+    },
+    "statusCodes": {
+      "202": 2493
+    },
+    "errors": 0,
+    "timeouts": 0,
+    "non2xx": 0
+  },
+  "ingestion": {
+    "eventsAccepted": 124650,
+    "eventsAcceptedPerSecond": 12405,
+    "tracesPersisted": 24970,
+    "spansPersisted": 99880,
+    "expected": {
+      "traces": 24930,
+      "spans": 99720
+    },
+    "drainAfterLoadMs": 65933,
+    "eventsPersistedPerSecond": 1643,
+    "complete": true
+  }
+}
