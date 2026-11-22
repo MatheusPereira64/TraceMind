@@ -10,5 +10,12 @@
     "incremental": true,
     "types": ["vitest/globals", "node"]
   },
-  "include": ["src", "test", "drizzle.config.ts", "vitest.config.ts", "vitest.config.e2e.ts"]
+  "include": [
+    "src",
+    "test",
+    "scripts",
+    "drizzle.config.ts",
+    "vitest.config.ts",
+    "vitest.config.e2e.ts"
+  ]
 }

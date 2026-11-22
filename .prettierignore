@@ -4,3 +4,4 @@ dist
 coverage
 apps/api/drizzle/meta
 next-env.d.ts
+apps/api/openapi/openapi.json

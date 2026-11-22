@@ -15,6 +15,7 @@ import { ConfigModule } from './config/config.module.js';
 import { ENV, type Env } from './config/env.js';
 import { DatabaseModule } from './database/database.module.js';
 import { HealthController } from './health/health.controller.js';
+import { OpenApiController } from './openapi/openapi.controller.js';
 import { IngestionModule } from './ingestion/ingestion.module.js';
 import { OrganizationsModule } from './organizations/organizations.module.js';
 import { ProjectsModule } from './projects/projects.module.js';
@@ -104,7 +105,7 @@ const REQUEST_ID = /^[A-Za-z0-9._-]{1,128}$/;
     EvaluationsModule,
     RetentionModule,
   ],
-  controllers: [HealthController],
+  controllers: [HealthController, OpenApiController],
   providers: [
     // Order matters: throttle before authenticating so unauthenticated floods are cheap to reject.
     { provide: APP_GUARD, useClass: ThrottlerGuard },

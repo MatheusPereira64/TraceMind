@@ -24,7 +24,11 @@ async function main(): Promise<void> {
   });
   const batchSize = values['batch-size'] ? Number(values['batch-size']) : undefined;
 
-  const pool = new pg.Pool({ connectionString: url, max: 1, application_name: 'tracemind-retention' });
+  const pool = new pg.Pool({
+    connectionString: url,
+    max: 1,
+    application_name: 'tracemind-retention',
+  });
   try {
     const result = await purgeExpiredTelemetry(drizzle(pool), {
       ...(values.project ? { projectId: values.project } : {}),
