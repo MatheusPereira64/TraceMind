@@ -1,0 +1,6222 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "TraceMind API",
+    "version": "0.1.0",
+    "description": "Observability for LLM applications: telemetry ingestion (SDK, REST and OTLP) and the analytics, Trace Explorer and evaluation APIs behind the dashboard.\n\n**Authentication.** Dashboard routes use the session from `POST /v1/auth/login` (httpOnly cookie, or `Authorization: Bearer <token>` for scripts). Ingestion routes use a project API key (`Authorization: Bearer tm_<env>_…` or `X-TraceMind-Key`). The two are not interchangeable.\n\n**Errors.** Every non-2xx response has the `ApiErrorBody` shape and carries a `requestId` that matches the `X-Request-Id` response header and the server logs."
+  },
+  "servers": [
+    {
+      "url": "http://localhost:4000",
+      "description": "Local development"
+    }
+  ],
+  "tags": [
+    {
+      "name": "Ingestion",
+      "description": "Send telemetry with a project API key."
+    },
+    {
+      "name": "Auth"
+    },
+    {
+      "name": "Organizations"
+    },
+    {
+      "name": "Projects"
+    },
+    {
+      "name": "API keys"
+    },
+    {
+      "name": "Analytics",
+      "description": "Metrics computed from raw telemetry at query time."
+    },
+    {
+      "name": "Traces",
+      "description": "Trace Explorer and prompt history."
+    },
+    {
+      "name": "Evaluations"
+    },
+    {
+      "name": "Health"
+    },
+    {
+      "name": "Docs"
+    }
+  ],
+  "paths": {
+    "/health": {
+      "get": {
+        "operationId": "getLiveness",
+        "tags": [
+          "Health"
+        ],
+        "summary": "Liveness probe",
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "status"
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": "ok"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": []
+      }
+    },
+    "/health/ready": {
+      "get": {
+        "operationId": "getReadiness",
+        "tags": [
+          "Health"
+        ],
+        "summary": "Readiness probe",
+        "description": "Checks PostgreSQL and Redis. Answers 503 when either is unreachable.",
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "status",
+                    "checks"
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": "ok"
+                    },
+                    "checks": {
+                      "type": "object",
+                      "properties": {
+                        "database": {
+                          "enum": [
+                            "up",
+                            "down"
+                          ]
+                        },
+                        "redis": {
+                          "enum": [
+                            "up",
+                            "down"
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": []
+      }
+    },
+    "/v1/auth/register": {
+      "post": {
+        "operationId": "register",
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Create an account and its first organization",
+        "description": "Sets the httpOnly session cookie and also returns the token for scripts. Answers 403 when the server runs with `REGISTRATION_ENABLED=false`.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 120
+                  },
+                  "email": {
+                    "type": "string",
+                    "maxLength": 254
+                  },
+                  "password": {
+                    "type": "string",
+                    "minLength": 10,
+                    "maxLength": 128
+                  },
+                  "organizationName": {
+                    "type": "string",
+                    "minLength": 2,
+                    "maxLength": 120
+                  }
+                },
+                "required": [
+                  "name",
+                  "email",
+                  "password",
+                  "organizationName"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error413"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          }
+        },
+        "security": []
+      }
+    },
+    "/v1/auth/login": {
+      "post": {
+        "operationId": "login",
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Sign in",
+        "description": "Sets the httpOnly session cookie and also returns the token for scripts.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "email": {
+                    "type": "string",
+                    "maxLength": 254
+                  },
+                  "password": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  }
+                },
+                "required": [
+                  "email",
+                  "password"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error413"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          }
+        },
+        "security": []
+      }
+    },
+    "/v1/auth/logout": {
+      "post": {
+        "operationId": "logout",
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Sign out (clears the session cookie)",
+        "responses": {
+          "204": {
+            "description": "Success, no content."
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          }
+        },
+        "security": []
+      }
+    },
+    "/v1/auth/me": {
+      "get": {
+        "operationId": "getMe",
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Current user and organizations",
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "sessionBearer": []
+          }
+        ]
+      }
+    },
+    "/v1/organizations": {
+      "get": {
+        "operationId": "listOrganizations",
+        "tags": [
+          "Organizations"
+        ],
+        "summary": "Organizations of the current user",
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/OrganizationDto"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "sessionBearer": []
+          }
+        ]
+      },
+      "post": {
+        "operationId": "createOrganization",
+        "tags": [
+          "Organizations"
+        ],
+        "summary": "Create an organization (the caller becomes owner)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 2,
+                    "maxLength": 120
+                  },
+                  "slug": {
+                    "type": "string",
+                    "minLength": 2,
+                    "maxLength": 48,
+                    "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+                  }
+                },
+                "required": [
+                  "name"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrganizationDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error413"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "sessionBearer": []
+          }
+        ]
+      }
+    },
+    "/v1/organizations/{organizationId}/projects": {
+      "get": {
+        "operationId": "listProjects",
+        "tags": [
+          "Projects"
+        ],
+        "summary": "Projects of an organization",
+        "description": "Requires the **viewer** role (or higher) in the organization.",
+        "parameters": [
+          {
+            "name": "organizationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "includeArchived",
+            "in": "query",
+            "required": false,
+            "description": "Include archived projects.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ],
+              "default": "false"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ProjectDto"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "sessionBearer": []
+          }
+        ]
+      },
+      "post": {
+        "operationId": "createProject",
+        "tags": [
+          "Projects"
+        ],
+        "summary": "Create a project",
+        "description": "Requires the **admin** role (or higher) in the organization.",
+        "parameters": [
+          {
+            "name": "organizationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 2,
+                    "maxLength": 120
+                  },
+                  "slug": {
+                    "type": "string",
+                    "minLength": 2,
+                    "maxLength": 48,
+                    "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+                  },
+                  "description": {
+                    "type": "string",
+                    "maxLength": 500
+                  },
+                  "retentionDays": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 3650
+                  }
+                },
+                "required": [
+                  "name"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error413"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "sessionBearer": []
+          }
+        ]
+      }
+    },
+    "/v1/projects/{projectId}": {
+      "get": {
+        "operationId": "getProject",
+        "tags": [
+          "Projects"
+        ],
+        "summary": "Get a project",
+        "description": "Requires the **viewer** role (or higher) in the organization.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "sessionBearer": []
+          }
+        ]
+      },
+      "patch": {
+        "operationId": "updateProject",
+        "tags": [
+          "Projects"
+        ],
+        "summary": "Update name, description, retention or redaction settings",
+        "description": "Requires the **admin** role (or higher) in the organization.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 2,
+                    "maxLength": 120
+                  },
+                  "description": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "maxLength": 500
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "retentionDays": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 3650
+                  },
+                  "redaction": {
+                    "type": "object",
+                    "properties": {
+                      "enabled": {
+                        "type": "boolean"
+                      },
+                      "maskEmails": {
+                        "type": "boolean"
+                      },
+                      "maskPhoneNumbers": {
+                        "type": "boolean"
+                      },
+                      "literals": {
+                        "maxItems": 50,
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "minLength": 3,
+                          "maxLength": 200
+                        }
+                      }
+                    },
+                    "required": [
+                      "enabled",
+                      "maskEmails",
+                      "maskPhoneNumbers",
+                      "literals"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error413"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "sessionBearer": []
+          }
+        ]
+      },
+      "delete": {
+        "operationId": "archiveProject",
+        "tags": [
+          "Projects"
+        ],
+        "summary": "Archive a project",
+        "description": "Stops accepting telemetry and revokes its API keys. Data stays readable until the retention job removes it.\n\nRequires the **admin** role (or higher) in the organization.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "sessionBearer": []
+          }
+        ]
+      }
+    },
+    "/v1/projects/{projectId}/ingestion": {
+      "get": {
+        "operationId": "getIngestionStatus",
+        "tags": [
+          "Projects"
+        ],
+        "summary": "Telemetry received by a project and recent ingestion failures",
+        "description": "Requires the **viewer** role (or higher) in the organization.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IngestionStatusDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "sessionBearer": []
+          }
+        ]
+      }
+    },
+    "/v1/projects/{projectId}/api-keys": {
+      "get": {
+        "operationId": "listApiKeys",
+        "tags": [
+          "API keys"
+        ],
+        "summary": "API keys of a project (never the secret)",
+        "description": "Requires the **viewer** role (or higher) in the organization.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ApiKeyDto"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "sessionBearer": []
+          }
+        ]
+      },
+      "post": {
+        "operationId": "createApiKey",
+        "tags": [
+          "API keys"
+        ],
+        "summary": "Create an API key",
+        "description": "The plaintext key is returned only in this response; only its hash is stored.\n\nRequires the **admin** role (or higher) in the organization.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 80
+                  },
+                  "environment": {
+                    "default": "development",
+                    "type": "string",
+                    "enum": [
+                      "development",
+                      "staging",
+                      "production"
+                    ]
+                  },
+                  "expiresAt": {
+                    "type": "string",
+                    "format": "date-time"
+                  }
+                },
+                "required": [
+                  "name"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreatedApiKeyDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error413"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "sessionBearer": []
+          }
+        ]
+      }
+    },
+    "/v1/projects/{projectId}/api-keys/{keyId}": {
+      "delete": {
+        "operationId": "revokeApiKey",
+        "tags": [
+          "API keys"
+        ],
+        "summary": "Revoke an API key",
+        "description": "Requires the **admin** role (or higher) in the organization.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "keyId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiKeyDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "sessionBearer": []
+          }
+        ]
+      }
+    },
+    "/v1/ingest/whoami": {
+      "get": {
+        "operationId": "whoami",
+        "tags": [
+          "Ingestion"
+        ],
+        "summary": "Validate an API key",
+        "description": "Returns the project, organization and default environment the key is bound to.",
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "projectId",
+                    "organizationId",
+                    "environment"
+                  ],
+                  "properties": {
+                    "projectId": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "organizationId": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "environment": {
+                      "enum": [
+                        "development",
+                        "staging",
+                        "production"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          }
+        },
+        "security": [
+          {
+            "apiKey": []
+          },
+          {
+            "apiKeyHeader": []
+          }
+        ]
+      }
+    },
+    "/v1/ingest/batch": {
+      "post": {
+        "operationId": "ingestBatch",
+        "tags": [
+          "Ingestion"
+        ],
+        "summary": "Send trace, span and evaluation events",
+        "description": "Up to 1000 events per request. Every event is an idempotent upsert keyed by its client id. Events are validated individually: valid ones are queued (202) even when others are rejected, and `rejected` lists each invalid event by index. Answers 503 with Retry-After when the ingestion backlog is full.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "events": {
+                    "minItems": 1,
+                    "maxItems": 1000,
+                    "type": "array",
+                    "items": {
+                      "oneOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "type": {
+                              "type": "string",
+                              "const": "trace"
+                            },
+                            "id": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128
+                            },
+                            "name": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 200
+                            },
+                            "environment": {
+                              "type": "string",
+                              "enum": [
+                                "development",
+                                "staging",
+                                "production"
+                              ]
+                            },
+                            "userId": {
+                              "type": "string",
+                              "maxLength": 200
+                            },
+                            "sessionId": {
+                              "type": "string",
+                              "maxLength": 200
+                            },
+                            "tags": {
+                              "maxItems": 32,
+                              "type": "array",
+                              "items": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 64
+                              }
+                            },
+                            "metadata": {
+                              "type": "object",
+                              "propertyNames": {
+                                "type": "string",
+                                "maxLength": 200
+                              },
+                              "additionalProperties": {}
+                            },
+                            "input": {},
+                            "output": {},
+                            "startTime": {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            "endTime": {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            "status": {
+                              "type": "string",
+                              "enum": [
+                                "running",
+                                "success",
+                                "error"
+                              ]
+                            },
+                            "error": {
+                              "type": "object",
+                              "properties": {
+                                "type": {
+                                  "default": "unknown",
+                                  "type": "string",
+                                  "enum": [
+                                    "provider_error",
+                                    "api_failure",
+                                    "rate_limit",
+                                    "timeout",
+                                    "invalid_response",
+                                    "tool_call_failed",
+                                    "unknown"
+                                  ]
+                                },
+                                "message": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 10000
+                                },
+                                "code": {
+                                  "type": "string",
+                                  "maxLength": 200
+                                },
+                                "httpStatus": {
+                                  "type": "integer",
+                                  "minimum": 100,
+                                  "maximum": 599
+                                },
+                                "stack": {
+                                  "type": "string",
+                                  "maxLength": 50000
+                                }
+                              },
+                              "required": [
+                                "message"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "type",
+                            "id"
+                          ]
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "type": {
+                              "type": "string",
+                              "const": "span"
+                            },
+                            "id": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128
+                            },
+                            "traceId": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128
+                            },
+                            "parentId": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128
+                            },
+                            "name": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 200
+                            },
+                            "kind": {
+                              "type": "string",
+                              "enum": [
+                                "llm",
+                                "tool",
+                                "retrieval",
+                                "chain",
+                                "embedding",
+                                "custom"
+                              ]
+                            },
+                            "provider": {
+                              "type": "string",
+                              "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"
+                            },
+                            "model": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 200
+                            },
+                            "input": {},
+                            "output": {},
+                            "modelParameters": {
+                              "type": "object",
+                              "propertyNames": {
+                                "type": "string",
+                                "maxLength": 200
+                              },
+                              "additionalProperties": {}
+                            },
+                            "metadata": {
+                              "type": "object",
+                              "propertyNames": {
+                                "type": "string",
+                                "maxLength": 200
+                              },
+                              "additionalProperties": {}
+                            },
+                            "startTime": {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            "endTime": {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            "status": {
+                              "type": "string",
+                              "enum": [
+                                "running",
+                                "success",
+                                "error"
+                              ]
+                            },
+                            "usage": {
+                              "type": "object",
+                              "properties": {
+                                "inputTokens": {
+                                  "default": 0,
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 100000000
+                                },
+                                "outputTokens": {
+                                  "default": 0,
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 100000000
+                                },
+                                "cachedInputTokens": {
+                                  "default": 0,
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 100000000
+                                },
+                                "totalTokens": {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 200000000
+                                },
+                                "costUsd": {
+                                  "type": "number",
+                                  "minimum": 0,
+                                  "maximum": 1000000
+                                }
+                              }
+                            },
+                            "error": {
+                              "type": "object",
+                              "properties": {
+                                "type": {
+                                  "default": "unknown",
+                                  "type": "string",
+                                  "enum": [
+                                    "provider_error",
+                                    "api_failure",
+                                    "rate_limit",
+                                    "timeout",
+                                    "invalid_response",
+                                    "tool_call_failed",
+                                    "unknown"
+                                  ]
+                                },
+                                "message": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 10000
+                                },
+                                "code": {
+                                  "type": "string",
+                                  "maxLength": 200
+                                },
+                                "httpStatus": {
+                                  "type": "integer",
+                                  "minimum": 100,
+                                  "maximum": 599
+                                },
+                                "stack": {
+                                  "type": "string",
+                                  "maxLength": 50000
+                                }
+                              },
+                              "required": [
+                                "message"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "type",
+                            "id",
+                            "traceId"
+                          ]
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "type": {
+                              "type": "string",
+                              "const": "evaluation"
+                            },
+                            "id": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128
+                            },
+                            "traceId": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128
+                            },
+                            "spanId": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128
+                            },
+                            "criterion": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 100
+                            },
+                            "kind": {
+                              "type": "string",
+                              "enum": [
+                                "thumbs",
+                                "numeric",
+                                "categorical"
+                              ]
+                            },
+                            "score": {
+                              "type": "number"
+                            },
+                            "label": {
+                              "type": "string",
+                              "maxLength": 200
+                            },
+                            "comment": {
+                              "type": "string",
+                              "maxLength": 5000
+                            }
+                          },
+                          "required": [
+                            "type",
+                            "traceId",
+                            "criterion",
+                            "kind"
+                          ]
+                        }
+                      ]
+                    }
+                  },
+                  "sdk": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string",
+                        "maxLength": 100
+                      },
+                      "version": {
+                        "type": "string",
+                        "maxLength": 50
+                      }
+                    },
+                    "required": [
+                      "name",
+                      "version"
+                    ]
+                  }
+                },
+                "required": [
+                  "events"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IngestBatchResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error413"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error503"
+          }
+        },
+        "security": [
+          {
+            "apiKey": []
+          },
+          {
+            "apiKeyHeader": []
+          }
+        ]
+      }
+    },
+    "/v1/ingest/otlp/v1/traces": {
+      "post": {
+        "operationId": "ingestOtlpTraces",
+        "tags": [
+          "Ingestion"
+        ],
+        "summary": "OTLP/HTTP trace export (JSON encoding)",
+        "description": "Accepts `ExportTraceServiceRequest` in OTLP/JSON. GenAI semantic-convention attributes (`gen_ai.*`) become LLM spans with token usage and cost. Protobuf is not supported (415).",
+        "requestBody": {
+          "required": true,
+          "description": "OTLP ExportTraceServiceRequest, JSON encoding.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "resourceSpans": {
+                    "type": "array",
+                    "items": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "partialSuccess": {
+                      "type": "object",
+                      "properties": {
+                        "rejectedSpans": {
+                          "type": "integer"
+                        },
+                        "errorMessage": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error413"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error415"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error503"
+          }
+        },
+        "security": [
+          {
+            "apiKey": []
+          },
+          {
+            "apiKeyHeader": []
+          }
+        ]
+      }
+    },
+    "/v1/projects/{projectId}/analytics/overview": {
+      "get": {
+        "operationId": "getOverview",
+        "tags": [
+          "Analytics"
+        ],
+        "summary": "Totals and latency percentiles, with the previous period",
+        "description": "Requires the **viewer** role (or higher) in the organization.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "environment",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "development",
+                "staging",
+                "production"
+              ]
+            }
+          },
+          {
+            "name": "provider",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 64
+            }
+          },
+          {
+            "name": "model",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 200
+            }
+          },
+          {
+            "name": "tz",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "default": "UTC",
+              "type": "string",
+              "maxLength": 64
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OverviewDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "sessionBearer": []
+          }
+        ]
+      }
+    },
+    "/v1/projects/{projectId}/analytics/timeseries": {
+      "get": {
+        "operationId": "getTimeseries",
+        "tags": [
+          "Analytics"
+        ],
+        "summary": "Requests, tokens, cost and latency per interval",
+        "description": "Requires the **viewer** role (or higher) in the organization.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "environment",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "development",
+                "staging",
+                "production"
+              ]
+            }
+          },
+          {
+            "name": "provider",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 64
+            }
+          },
+          {
+            "name": "model",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 200
+            }
+          },
+          {
+            "name": "tz",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "default": "UTC",
+              "type": "string",
+              "maxLength": 64
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TimeseriesDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "sessionBearer": []
+          }
+        ]
+      }
+    },
+    "/v1/projects/{projectId}/analytics/costs": {
+      "get": {
+        "operationId": "getCosts",
+        "tags": [
+          "Analytics"
+        ],
+        "summary": "Spend by model, token type and most expensive requests",
+        "description": "Requires the **viewer** role (or higher) in the organization.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "environment",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "development",
+                "staging",
+                "production"
+              ]
+            }
+          },
+          {
+            "name": "provider",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 64
+            }
+          },
+          {
+            "name": "model",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 200
+            }
+          },
+          {
+            "name": "tz",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "default": "UTC",
+              "type": "string",
+              "maxLength": 64
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CostsDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "sessionBearer": []
+          }
+        ]
+      }
+    },
+    "/v1/projects/{projectId}/analytics/performance": {
+      "get": {
+        "operationId": "getPerformance",
+        "tags": [
+          "Analytics"
+        ],
+        "summary": "Latency percentiles, distribution and slowest calls",
+        "description": "Requires the **viewer** role (or higher) in the organization.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "environment",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "development",
+                "staging",
+                "production"
+              ]
+            }
+          },
+          {
+            "name": "provider",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 64
+            }
+          },
+          {
+            "name": "model",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 200
+            }
+          },
+          {
+            "name": "tz",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "default": "UTC",
+              "type": "string",
+              "maxLength": 64
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PerformanceDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "sessionBearer": []
+          }
+        ]
+      }
+    },
+    "/v1/projects/{projectId}/analytics/dimensions": {
+      "get": {
+        "operationId": "getDimensions",
+        "tags": [
+          "Analytics"
+        ],
+        "summary": "Environments, providers and models seen in the project",
+        "description": "Requires the **viewer** role (or higher) in the organization.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DimensionsDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "sessionBearer": []
+          }
+        ]
+      }
+    },
+    "/v1/projects/{projectId}/analytics/breakdown": {
+      "get": {
+        "operationId": "getBreakdown",
+        "tags": [
+          "Analytics"
+        ],
+        "summary": "Usage and cost grouped by model or provider",
+        "description": "Requires the **viewer** role (or higher) in the organization.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "environment",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "development",
+                "staging",
+                "production"
+              ]
+            }
+          },
+          {
+            "name": "provider",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 64
+            }
+          },
+          {
+            "name": "model",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 200
+            }
+          },
+          {
+            "name": "tz",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "default": "UTC",
+              "type": "string",
+              "maxLength": 64
+            }
+          },
+          {
+            "name": "by",
+            "in": "query",
+            "required": false,
+            "description": "Grouping dimension.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "model",
+                "provider"
+              ],
+              "default": "model"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/BreakdownRow"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "sessionBearer": []
+          }
+        ]
+      }
+    },
+    "/v1/projects/{projectId}/analytics/errors": {
+      "get": {
+        "operationId": "getErrors",
+        "tags": [
+          "Analytics"
+        ],
+        "summary": "Errors over time by type, with their traces",
+        "description": "Requires the **viewer** role (or higher) in the organization.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "environment",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "development",
+                "staging",
+                "production"
+              ]
+            }
+          },
+          {
+            "name": "provider",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 64
+            }
+          },
+          {
+            "name": "model",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 200
+            }
+          },
+          {
+            "name": "tz",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "default": "UTC",
+              "type": "string",
+              "maxLength": 64
+            }
+          },
+          {
+            "name": "type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "provider_error",
+                "api_failure",
+                "rate_limit",
+                "timeout",
+                "invalid_response",
+                "tool_call_failed",
+                "unknown"
+              ]
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "default": 25,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 200
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorsDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "sessionBearer": []
+          }
+        ]
+      }
+    },
+    "/v1/pricing": {
+      "get": {
+        "operationId": "listPricing",
+        "tags": [
+          "Analytics"
+        ],
+        "summary": "Model price registry used for cost estimates",
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PricingRowDto"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "sessionBearer": []
+          }
+        ]
+      }
+    },
+    "/v1/projects/{projectId}/traces": {
+      "get": {
+        "operationId": "listTraces",
+        "tags": [
+          "Traces"
+        ],
+        "summary": "Search and filter traces (keyset pagination)",
+        "description": "Requires the **viewer** role (or higher) in the organization.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "environment",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "development",
+                "staging",
+                "production"
+              ]
+            }
+          },
+          {
+            "name": "provider",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 64
+            }
+          },
+          {
+            "name": "model",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 200
+            }
+          },
+          {
+            "name": "tz",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "default": "UTC",
+              "type": "string",
+              "maxLength": 64
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 200
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "running",
+                "success",
+                "error"
+              ]
+            }
+          },
+          {
+            "name": "minDurationMs",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          {
+            "name": "userId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 200
+            }
+          },
+          {
+            "name": "sessionId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 200
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 300
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TracesPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "sessionBearer": []
+          }
+        ]
+      }
+    },
+    "/v1/projects/{projectId}/traces/{traceId}": {
+      "get": {
+        "operationId": "getTrace",
+        "tags": [
+          "Traces"
+        ],
+        "summary": "A trace with its span tree, errors and evaluations",
+        "description": "`traceId` is the client id sent at ingestion (1–128 characters).\n\nRequires the **viewer** role (or higher) in the organization.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "traceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TraceDetailDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "sessionBearer": []
+          }
+        ]
+      }
+    },
+    "/v1/projects/{projectId}/generations": {
+      "get": {
+        "operationId": "listGenerations",
+        "tags": [
+          "Traces"
+        ],
+        "summary": "Prompt history: every LLM call with its prompt and answer",
+        "description": "Requires the **viewer** role (or higher) in the organization.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "environment",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "development",
+                "staging",
+                "production"
+              ]
+            }
+          },
+          {
+            "name": "provider",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 64
+            }
+          },
+          {
+            "name": "model",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 200
+            }
+          },
+          {
+            "name": "tz",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "default": "UTC",
+              "type": "string",
+              "maxLength": 64
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 200
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "running",
+                "success",
+                "error"
+              ]
+            }
+          },
+          {
+            "name": "inputHash",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{32}$"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 300
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenerationsPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "sessionBearer": []
+          }
+        ]
+      }
+    },
+    "/v1/projects/{projectId}/generations/{uid}": {
+      "get": {
+        "operationId": "getGeneration",
+        "tags": [
+          "Traces"
+        ],
+        "summary": "One LLM call in full",
+        "description": "Requires the **viewer** role (or higher) in the organization.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "uid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenerationDetailDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "sessionBearer": []
+          }
+        ]
+      }
+    },
+    "/v1/projects/{projectId}/prompts/repeated": {
+      "get": {
+        "operationId": "listRepeatedPrompts",
+        "tags": [
+          "Traces"
+        ],
+        "summary": "Identical prompts sent more than once (caching candidates)",
+        "description": "Requires the **viewer** role (or higher) in the organization.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "environment",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "development",
+                "staging",
+                "production"
+              ]
+            }
+          },
+          {
+            "name": "provider",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 64
+            }
+          },
+          {
+            "name": "model",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 200
+            }
+          },
+          {
+            "name": "tz",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "default": "UTC",
+              "type": "string",
+              "maxLength": 64
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/RepeatedPromptDto"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "sessionBearer": []
+          }
+        ]
+      }
+    },
+    "/v1/projects/{projectId}/evaluation-criteria": {
+      "get": {
+        "operationId": "listCriteria",
+        "tags": [
+          "Evaluations"
+        ],
+        "summary": "Evaluation criteria definitions",
+        "description": "Requires the **viewer** role (or higher) in the organization.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/CriterionDto"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "sessionBearer": []
+          }
+        ]
+      },
+      "post": {
+        "operationId": "createCriterion",
+        "tags": [
+          "Evaluations"
+        ],
+        "summary": "Define a criterion (scale or labels)",
+        "description": "Requires the **admin** role (or higher) in the organization.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,99}$"
+                  },
+                  "description": {
+                    "type": "string",
+                    "maxLength": 500
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "thumbs",
+                      "numeric",
+                      "categorical"
+                    ]
+                  },
+                  "minScore": {
+                    "type": "number"
+                  },
+                  "maxScore": {
+                    "type": "number"
+                  },
+                  "labels": {
+                    "maxItems": 20,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 60
+                    }
+                  }
+                },
+                "required": [
+                  "name",
+                  "kind"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CriterionDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error413"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "sessionBearer": []
+          }
+        ]
+      }
+    },
+    "/v1/projects/{projectId}/evaluation-criteria/{criterionId}": {
+      "put": {
+        "operationId": "updateCriterion",
+        "tags": [
+          "Evaluations"
+        ],
+        "summary": "Replace a criterion definition",
+        "description": "Requires the **admin** role (or higher) in the organization.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "criterionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,99}$"
+                  },
+                  "description": {
+                    "type": "string",
+                    "maxLength": 500
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "thumbs",
+                      "numeric",
+                      "categorical"
+                    ]
+                  },
+                  "minScore": {
+                    "type": "number"
+                  },
+                  "maxScore": {
+                    "type": "number"
+                  },
+                  "labels": {
+                    "maxItems": 20,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 60
+                    }
+                  }
+                },
+                "required": [
+                  "name",
+                  "kind"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CriterionDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error413"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "sessionBearer": []
+          }
+        ]
+      },
+      "delete": {
+        "operationId": "deleteCriterion",
+        "tags": [
+          "Evaluations"
+        ],
+        "summary": "Delete a criterion definition (scores are kept)",
+        "description": "Requires the **admin** role (or higher) in the organization.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "criterionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Success, no content."
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "sessionBearer": []
+          }
+        ]
+      }
+    },
+    "/v1/projects/{projectId}/traces/{traceId}/evaluations": {
+      "post": {
+        "operationId": "createEvaluation",
+        "tags": [
+          "Evaluations"
+        ],
+        "summary": "Score a trace or one of its spans as a reviewer",
+        "description": "Idempotent per reviewer, target and criterion: scoring again updates the score.\n\nRequires the **member** role (or higher) in the organization.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "traceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "spanId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  },
+                  "criterion": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,99}$"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "thumbs",
+                      "numeric",
+                      "categorical"
+                    ]
+                  },
+                  "score": {
+                    "type": "number"
+                  },
+                  "label": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "comment": {
+                    "type": "string",
+                    "maxLength": 5000
+                  }
+                },
+                "required": [
+                  "criterion",
+                  "kind"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EvaluationDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error413"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "sessionBearer": []
+          }
+        ]
+      }
+    },
+    "/v1/projects/{projectId}/evaluations/{evaluationId}": {
+      "delete": {
+        "operationId": "deleteEvaluation",
+        "tags": [
+          "Evaluations"
+        ],
+        "summary": "Delete an evaluation",
+        "description": "Members can delete their own scores; admins can delete any.\n\nRequires the **member** role (or higher) in the organization.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "evaluationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Success, no content."
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "sessionBearer": []
+          }
+        ]
+      }
+    },
+    "/v1/projects/{projectId}/evaluations": {
+      "get": {
+        "operationId": "listEvaluations",
+        "tags": [
+          "Evaluations"
+        ],
+        "summary": "Evaluation history",
+        "description": "Requires the **viewer** role (or higher) in the organization.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "environment",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "development",
+                "staging",
+                "production"
+              ]
+            }
+          },
+          {
+            "name": "provider",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 64
+            }
+          },
+          {
+            "name": "model",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 200
+            }
+          },
+          {
+            "name": "tz",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "default": "UTC",
+              "type": "string",
+              "maxLength": 64
+            }
+          },
+          {
+            "name": "criterion",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 100
+            }
+          },
+          {
+            "name": "source",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "human",
+                "api",
+                "llm_judge"
+              ]
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 300
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EvaluationsPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "sessionBearer": []
+          }
+        ]
+      }
+    },
+    "/v1/projects/{projectId}/evaluations/summary": {
+      "get": {
+        "operationId": "getEvaluationSummary",
+        "tags": [
+          "Evaluations"
+        ],
+        "summary": "Per-criterion averages, distributions and trends",
+        "description": "Requires the **viewer** role (or higher) in the organization.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "environment",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "development",
+                "staging",
+                "production"
+              ]
+            }
+          },
+          {
+            "name": "provider",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 64
+            }
+          },
+          {
+            "name": "model",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 200
+            }
+          },
+          {
+            "name": "tz",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "default": "UTC",
+              "type": "string",
+              "maxLength": 64
+            }
+          },
+          {
+            "name": "criterion",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 100
+            }
+          },
+          {
+            "name": "source",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "human",
+                "api",
+                "llm_judge"
+              ]
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 300
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EvaluationSummaryDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "sessionBearer": []
+          }
+        ]
+      }
+    },
+    "/v1/openapi.json": {
+      "get": {
+        "operationId": "getOpenApiDocument",
+        "tags": [
+          "Docs"
+        ],
+        "summary": "This OpenAPI document",
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "security": []
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "sessionCookie": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "tm_session"
+      },
+      "sessionBearer": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      },
+      "apiKey": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "Project API key, `tm_<environment>_<32 characters>`."
+      },
+      "apiKeyHeader": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-TraceMind-Key"
+      }
+    },
+    "responses": {
+      "Error400": {
+        "description": "Invalid input. `issues` lists field-level problems.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ApiErrorBody"
+            }
+          }
+        }
+      },
+      "Error401": {
+        "description": "Missing or invalid credentials.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ApiErrorBody"
+            }
+          }
+        }
+      },
+      "Error403": {
+        "description": "Authenticated, but the role is insufficient.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ApiErrorBody"
+            }
+          }
+        }
+      },
+      "Error404": {
+        "description": "Not found, or not visible to the caller (no existence leak across tenants).",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ApiErrorBody"
+            }
+          }
+        }
+      },
+      "Error413": {
+        "description": "Body larger than 5 MB.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ApiErrorBody"
+            }
+          }
+        }
+      },
+      "Error415": {
+        "description": "Unsupported content type.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ApiErrorBody"
+            }
+          }
+        }
+      },
+      "Error429": {
+        "description": "Rate limit exceeded. Retry after the `Retry-After` delay.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ApiErrorBody"
+            }
+          }
+        }
+      },
+      "Error503": {
+        "description": "Ingestion backlog is full. Retry after the `Retry-After` delay.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ApiErrorBody"
+            }
+          }
+        }
+      }
+    },
+    "schemas": {
+      "ApiErrorBody": {
+        "description": "Shape of every non-2xx response body.",
+        "properties": {
+          "error": {
+            "type": "string"
+          },
+          "issues": {
+            "description": "Field-level validation issues, when applicable.",
+            "items": {
+              "properties": {
+                "message": {
+                  "type": "string"
+                },
+                "path": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path",
+                "message"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "message": {
+            "type": "string"
+          },
+          "requestId": {
+            "type": "string"
+          },
+          "statusCode": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "statusCode",
+          "error",
+          "message"
+        ],
+        "type": "object"
+      },
+      "ApiKeyDto": {
+        "properties": {
+          "createdAt": {
+            "type": "string"
+          },
+          "environment": {
+            "$ref": "#/components/schemas/Environment"
+          },
+          "expiresAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "lastUsedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "prefix": {
+            "description": "Non-secret visible prefix, e.g. `tm_dev_3fA9kQ2m`.",
+            "type": "string"
+          },
+          "projectId": {
+            "type": "string"
+          },
+          "revokedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "projectId",
+          "name",
+          "prefix",
+          "environment",
+          "createdAt",
+          "lastUsedAt",
+          "expiresAt",
+          "revokedAt"
+        ],
+        "type": "object"
+      },
+      "BreakdownRow": {
+        "properties": {
+          "avgLatencyMs": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "costShare": {
+            "description": "Share of total estimated cost, 0..1.",
+            "type": "number"
+          },
+          "costUsd": {
+            "type": "string"
+          },
+          "errors": {
+            "type": "number"
+          },
+          "inputTokens": {
+            "type": "number"
+          },
+          "model": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "outputTokens": {
+            "type": "number"
+          },
+          "p95LatencyMs": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "provider": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "requests": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "provider",
+          "model",
+          "requests",
+          "errors",
+          "inputTokens",
+          "outputTokens",
+          "costUsd",
+          "costShare",
+          "avgLatencyMs",
+          "p95LatencyMs"
+        ],
+        "type": "object"
+      },
+      "BucketSize": {
+        "enum": [
+          "1 hour",
+          "6 hours",
+          "1 day",
+          "1 week"
+        ],
+        "type": "string"
+      },
+      "CostsDto": {
+        "properties": {
+          "bucket": {
+            "$ref": "#/components/schemas/BucketSize"
+          },
+          "cacheSavingsUsd": {
+            "description": "What cached tokens would have cost at the regular input price, minus what they cost.",
+            "type": "string"
+          },
+          "cachedInputCostUsd": {
+            "type": "string"
+          },
+          "estimatedCostUsd": {
+            "type": "string"
+          },
+          "inputCostUsd": {
+            "type": "string"
+          },
+          "outputCostUsd": {
+            "type": "string"
+          },
+          "reportedCostUsd": {
+            "type": "string"
+          },
+          "series": {
+            "description": "Cost per bucket and model, for stacked charts.",
+            "items": {
+              "properties": {
+                "costUsd": {
+                  "type": "number"
+                },
+                "model": {
+                  "type": "string"
+                },
+                "t": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "t",
+                "model",
+                "costUsd"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "topRequests": {
+            "items": {
+              "properties": {
+                "costUsd": {
+                  "type": "string"
+                },
+                "inputTokens": {
+                  "type": "number"
+                },
+                "model": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "outputTokens": {
+                  "type": "number"
+                },
+                "provider": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "spanId": {
+                  "type": "string"
+                },
+                "spanName": {
+                  "type": "string"
+                },
+                "startedAt": {
+                  "type": "string"
+                },
+                "traceId": {
+                  "type": "string"
+                },
+                "traceName": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "traceId",
+                "traceName",
+                "spanId",
+                "spanName",
+                "provider",
+                "model",
+                "inputTokens",
+                "outputTokens",
+                "costUsd",
+                "startedAt"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "unpricedRequests": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "estimatedCostUsd",
+          "reportedCostUsd",
+          "inputCostUsd",
+          "outputCostUsd",
+          "cachedInputCostUsd",
+          "cacheSavingsUsd",
+          "unpricedRequests",
+          "series",
+          "bucket",
+          "topRequests"
+        ],
+        "type": "object"
+      },
+      "CreatedApiKeyDto": {
+        "description": "Returned exactly once, when the key is created. The plaintext key is never stored.",
+        "properties": {
+          "createdAt": {
+            "type": "string"
+          },
+          "environment": {
+            "$ref": "#/components/schemas/Environment"
+          },
+          "expiresAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          },
+          "lastUsedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "prefix": {
+            "description": "Non-secret visible prefix, e.g. `tm_dev_3fA9kQ2m`.",
+            "type": "string"
+          },
+          "projectId": {
+            "type": "string"
+          },
+          "revokedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "createdAt",
+          "environment",
+          "expiresAt",
+          "id",
+          "key",
+          "lastUsedAt",
+          "name",
+          "prefix",
+          "projectId",
+          "revokedAt"
+        ],
+        "type": "object"
+      },
+      "CriterionDto": {
+        "properties": {
+          "createdAt": {
+            "type": "string"
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/EvaluationKind"
+          },
+          "labels": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "maxScore": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "minScore": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "description",
+          "kind",
+          "minScore",
+          "maxScore",
+          "labels",
+          "createdAt"
+        ],
+        "type": "object"
+      },
+      "CriterionSummary": {
+        "properties": {
+          "average": {
+            "description": "Mean score (thumbs: share of thumbs-up). Null when no evaluation has a score.",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "count": {
+            "type": "number"
+          },
+          "criterion": {
+            "type": "string"
+          },
+          "definition": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CriterionDto"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "kind": {
+            "$ref": "#/components/schemas/EvaluationKind"
+          },
+          "labels": {
+            "description": "Categorical: count per label.",
+            "items": {
+              "properties": {
+                "count": {
+                  "type": "number"
+                },
+                "label": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "label",
+                "count"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "negative": {
+            "type": "number"
+          },
+          "positive": {
+            "description": "Thumbs only: thumbs-up / thumbs-down counts.",
+            "type": "number"
+          },
+          "series": {
+            "items": {
+              "properties": {
+                "average": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "count": {
+                  "type": "number"
+                },
+                "t": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "t",
+                "count",
+                "average"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "criterion",
+          "kind",
+          "count",
+          "average",
+          "positive",
+          "negative",
+          "labels",
+          "definition",
+          "series"
+        ],
+        "type": "object"
+      },
+      "DimensionsDto": {
+        "properties": {
+          "environments": {
+            "items": {
+              "$ref": "#/components/schemas/Environment"
+            },
+            "type": "array"
+          },
+          "firstSeenAt": {
+            "description": "Earliest and latest telemetry, so the UI can pick a sensible default range.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "lastSeenAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "models": {
+            "items": {
+              "properties": {
+                "model": {
+                  "type": "string"
+                },
+                "provider": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "provider",
+                "model"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "providers": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "environments",
+          "providers",
+          "models",
+          "firstSeenAt",
+          "lastSeenAt"
+        ],
+        "type": "object"
+      },
+      "Environment": {
+        "enum": [
+          "development",
+          "staging",
+          "production"
+        ],
+        "type": "string"
+      },
+      "ErrorItem": {
+        "properties": {
+          "code": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "httpStatus": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "model": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "occurredAt": {
+            "type": "string"
+          },
+          "provider": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "spanId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "spanName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "traceId": {
+            "type": "string"
+          },
+          "traceName": {
+            "type": "string"
+          },
+          "type": {
+            "$ref": "#/components/schemas/ErrorType"
+          }
+        },
+        "required": [
+          "id",
+          "type",
+          "message",
+          "code",
+          "httpStatus",
+          "provider",
+          "model",
+          "occurredAt",
+          "traceId",
+          "traceName",
+          "spanId",
+          "spanName"
+        ],
+        "type": "object"
+      },
+      "ErrorType": {
+        "enum": [
+          "provider_error",
+          "api_failure",
+          "rate_limit",
+          "timeout",
+          "invalid_response",
+          "tool_call_failed",
+          "unknown"
+        ],
+        "type": "string"
+      },
+      "ErrorsDto": {
+        "properties": {
+          "bucket": {
+            "$ref": "#/components/schemas/BucketSize"
+          },
+          "byType": {
+            "items": {
+              "properties": {
+                "count": {
+                  "type": "number"
+                },
+                "type": {
+                  "$ref": "#/components/schemas/ErrorType"
+                }
+              },
+              "required": [
+                "type",
+                "count"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ErrorItem"
+            },
+            "type": "array"
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "series": {
+            "items": {
+              "properties": {
+                "count": {
+                  "type": "number"
+                },
+                "t": {
+                  "type": "string"
+                },
+                "type": {
+                  "$ref": "#/components/schemas/ErrorType"
+                }
+              },
+              "required": [
+                "t",
+                "type",
+                "count"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "byType",
+          "series",
+          "bucket",
+          "items",
+          "nextCursor"
+        ],
+        "type": "object"
+      },
+      "EvaluationDto": {
+        "properties": {
+          "comment": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "createdBy": {
+            "anyOf": [
+              {
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "name"
+                ],
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "criterion": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/EvaluationKind"
+          },
+          "label": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "score": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "source": {
+            "$ref": "#/components/schemas/EvaluationSource"
+          },
+          "spanId": {
+            "description": "External span id when the evaluation targets a single span.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "traceId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "traceId",
+          "spanId",
+          "criterion",
+          "kind",
+          "score",
+          "label",
+          "comment",
+          "source",
+          "createdBy",
+          "createdAt"
+        ],
+        "type": "object"
+      },
+      "EvaluationKind": {
+        "enum": [
+          "thumbs",
+          "numeric",
+          "categorical"
+        ],
+        "type": "string"
+      },
+      "EvaluationListItem": {
+        "properties": {
+          "comment": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "createdBy": {
+            "anyOf": [
+              {
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "name"
+                ],
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "criterion": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/EvaluationKind"
+          },
+          "label": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "score": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "source": {
+            "$ref": "#/components/schemas/EvaluationSource"
+          },
+          "spanId": {
+            "description": "External span id when the evaluation targets a single span.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "traceId": {
+            "type": "string"
+          },
+          "traceName": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "comment",
+          "createdAt",
+          "createdBy",
+          "criterion",
+          "id",
+          "kind",
+          "label",
+          "score",
+          "source",
+          "spanId",
+          "traceId",
+          "traceName"
+        ],
+        "type": "object"
+      },
+      "EvaluationSource": {
+        "enum": [
+          "human",
+          "api",
+          "llm_judge"
+        ],
+        "type": "string"
+      },
+      "EvaluationSummaryDto": {
+        "properties": {
+          "bucket": {
+            "$ref": "#/components/schemas/BucketSize"
+          },
+          "bySource": {
+            "items": {
+              "properties": {
+                "count": {
+                  "type": "number"
+                },
+                "source": {
+                  "$ref": "#/components/schemas/EvaluationSource"
+                }
+              },
+              "required": [
+                "source",
+                "count"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "coverage": {
+            "description": "Share of traces in the range with at least one evaluation, 0..1.",
+            "type": "number"
+          },
+          "criteria": {
+            "items": {
+              "$ref": "#/components/schemas/CriterionSummary"
+            },
+            "type": "array"
+          },
+          "total": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "bucket",
+          "total",
+          "bySource",
+          "coverage",
+          "criteria"
+        ],
+        "type": "object"
+      },
+      "EvaluationsPage": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/EvaluationListItem"
+            },
+            "type": "array"
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "items",
+          "nextCursor"
+        ],
+        "type": "object"
+      },
+      "GenerationDetailDto": {
+        "properties": {
+          "environment": {
+            "$ref": "#/components/schemas/Environment"
+          },
+          "span": {
+            "$ref": "#/components/schemas/SpanDto"
+          },
+          "traceId": {
+            "type": "string"
+          },
+          "traceName": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "traceId",
+          "traceName",
+          "environment",
+          "span"
+        ],
+        "type": "object"
+      },
+      "GenerationItem": {
+        "properties": {
+          "costUsd": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "durationMs": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "inputHash": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "inputTokens": {
+            "type": "number"
+          },
+          "model": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "outputTokens": {
+            "type": "number"
+          },
+          "promptPreview": {
+            "type": "string"
+          },
+          "provider": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "responsePreview": {
+            "type": "string"
+          },
+          "spanId": {
+            "type": "string"
+          },
+          "spanName": {
+            "type": "string"
+          },
+          "startedAt": {
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/TraceStatus"
+          },
+          "traceId": {
+            "type": "string"
+          },
+          "traceName": {
+            "type": "string"
+          },
+          "uid": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "uid",
+          "traceId",
+          "traceName",
+          "spanId",
+          "spanName",
+          "provider",
+          "model",
+          "status",
+          "startedAt",
+          "durationMs",
+          "inputTokens",
+          "outputTokens",
+          "costUsd",
+          "inputHash",
+          "promptPreview",
+          "responsePreview"
+        ],
+        "type": "object"
+      },
+      "GenerationsPage": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/GenerationItem"
+            },
+            "type": "array"
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "items",
+          "nextCursor"
+        ],
+        "type": "object"
+      },
+      "IngestBatchResponse": {
+        "properties": {
+          "accepted": {
+            "type": "number"
+          },
+          "batchId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "rejected": {
+            "items": {
+              "$ref": "#/components/schemas/IngestRejection"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "batchId",
+          "accepted",
+          "rejected"
+        ],
+        "type": "object"
+      },
+      "IngestRejection": {
+        "properties": {
+          "eventId": {
+            "type": "string"
+          },
+          "index": {
+            "type": "number"
+          },
+          "issues": {
+            "items": {
+              "properties": {
+                "message": {
+                  "type": "string"
+                },
+                "path": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path",
+                "message"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "index",
+          "issues"
+        ],
+        "type": "object"
+      },
+      "IngestionStatusDto": {
+        "properties": {
+          "lastReceivedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "recentFailures": {
+            "items": {
+              "properties": {
+                "createdAt": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "number"
+                },
+                "reason": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "reason",
+                "createdAt"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "spanCount": {
+            "type": "number"
+          },
+          "traceCount": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "traceCount",
+          "spanCount",
+          "lastReceivedAt",
+          "recentFailures"
+        ],
+        "type": "object"
+      },
+      "MeDto": {
+        "properties": {
+          "organizations": {
+            "items": {
+              "$ref": "#/components/schemas/OrganizationDto"
+            },
+            "type": "array"
+          },
+          "user": {
+            "$ref": "#/components/schemas/UserDto"
+          }
+        },
+        "required": [
+          "user",
+          "organizations"
+        ],
+        "type": "object"
+      },
+      "OrganizationDto": {
+        "properties": {
+          "createdAt": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "role": {
+            "$ref": "#/components/schemas/OrganizationRole"
+          },
+          "slug": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "slug",
+          "role",
+          "createdAt"
+        ],
+        "type": "object"
+      },
+      "OrganizationRole": {
+        "enum": [
+          "owner",
+          "admin",
+          "member",
+          "viewer"
+        ],
+        "type": "string"
+      },
+      "OverviewDto": {
+        "properties": {
+          "current": {
+            "$ref": "#/components/schemas/PeriodTotals"
+          },
+          "previous": {
+            "$ref": "#/components/schemas/PeriodTotals",
+            "description": "Same-length window immediately before `from`, for trend deltas."
+          }
+        },
+        "required": [
+          "current",
+          "previous"
+        ],
+        "type": "object"
+      },
+      "PerformanceDto": {
+        "properties": {
+          "histogram": {
+            "items": {
+              "properties": {
+                "fromMs": {
+                  "type": "number"
+                },
+                "requests": {
+                  "type": "number"
+                },
+                "toMs": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "fromMs",
+                "toMs",
+                "requests"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "slowest": {
+            "items": {
+              "properties": {
+                "durationMs": {
+                  "type": "number"
+                },
+                "model": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "spanId": {
+                  "type": "string"
+                },
+                "spanName": {
+                  "type": "string"
+                },
+                "startedAt": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string"
+                },
+                "traceId": {
+                  "type": "string"
+                },
+                "traceName": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "traceId",
+                "traceName",
+                "spanId",
+                "spanName",
+                "model",
+                "durationMs",
+                "status",
+                "startedAt"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "histogram",
+          "slowest"
+        ],
+        "type": "object"
+      },
+      "PeriodTotals": {
+        "properties": {
+          "avgLatencyMs": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "cachedInputTokens": {
+            "type": "number"
+          },
+          "errorRate": {
+            "description": "errors / requests, 0..1 (0 when there are no requests).",
+            "type": "number"
+          },
+          "errors": {
+            "type": "number"
+          },
+          "estimatedCostUsd": {
+            "description": "Decimal strings: exact NUMERIC from PostgreSQL.",
+            "type": "string"
+          },
+          "inputTokens": {
+            "type": "number"
+          },
+          "outputTokens": {
+            "type": "number"
+          },
+          "p50LatencyMs": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "p95LatencyMs": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "p99LatencyMs": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "rateLimits": {
+            "type": "number"
+          },
+          "reportedCostUsd": {
+            "type": "string"
+          },
+          "requests": {
+            "type": "number"
+          },
+          "throughputPerMinute": {
+            "description": "Requests per minute over the selected range.",
+            "type": "number"
+          },
+          "timeouts": {
+            "type": "number"
+          },
+          "totalTokens": {
+            "type": "number"
+          },
+          "traces": {
+            "type": "number"
+          },
+          "unpricedRequests": {
+            "description": "Requests with token usage but no matching price (excluded from the estimate).",
+            "type": "number"
+          }
+        },
+        "required": [
+          "requests",
+          "traces",
+          "errors",
+          "errorRate",
+          "timeouts",
+          "rateLimits",
+          "inputTokens",
+          "outputTokens",
+          "cachedInputTokens",
+          "totalTokens",
+          "estimatedCostUsd",
+          "reportedCostUsd",
+          "unpricedRequests",
+          "avgLatencyMs",
+          "p50LatencyMs",
+          "p95LatencyMs",
+          "p99LatencyMs",
+          "throughputPerMinute"
+        ],
+        "type": "object"
+      },
+      "PricingRowDto": {
+        "properties": {
+          "cachedInputPricePerMillion": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "effectiveFrom": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "effectiveTo": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "inputPricePerMillion": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "outputPricePerMillion": {
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "source": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "provider",
+          "model",
+          "inputPricePerMillion",
+          "outputPricePerMillion",
+          "cachedInputPricePerMillion",
+          "effectiveFrom",
+          "effectiveTo",
+          "source"
+        ],
+        "type": "object"
+      },
+      "ProjectDto": {
+        "properties": {
+          "archivedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "isDemo": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          },
+          "organizationId": {
+            "type": "string"
+          },
+          "redaction": {
+            "$ref": "#/components/schemas/RedactionSettings"
+          },
+          "retentionDays": {
+            "type": "number"
+          },
+          "slug": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "organizationId",
+          "name",
+          "slug",
+          "description",
+          "retentionDays",
+          "redaction",
+          "isDemo",
+          "createdAt",
+          "archivedAt"
+        ],
+        "type": "object"
+      },
+      "RedactionSettings": {
+        "description": "Declared as an interface (not `z.infer`) so API contracts that embed it can be turned into OpenAPI schemas; the assertion below keeps it identical to the Zod schema.",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "literals": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "maskEmails": {
+            "type": "boolean"
+          },
+          "maskPhoneNumbers": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "enabled",
+          "maskEmails",
+          "maskPhoneNumbers",
+          "literals"
+        ],
+        "type": "object"
+      },
+      "RepeatedPromptDto": {
+        "properties": {
+          "avgLatencyMs": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "calls": {
+            "type": "number"
+          },
+          "distinctOutputs": {
+            "description": "Distinct completions: 1 means the same prompt always produced the same answer (cacheable).",
+            "type": "number"
+          },
+          "firstSeenAt": {
+            "type": "string"
+          },
+          "inputHash": {
+            "type": "string"
+          },
+          "lastSeenAt": {
+            "type": "string"
+          },
+          "latestUid": {
+            "description": "Most recent call, for drill-down.",
+            "type": "string"
+          },
+          "models": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "promptPreview": {
+            "type": "string"
+          },
+          "spanNames": {
+            "description": "Span names using this prompt (e.g. which step of the pipeline sends it).",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "totalCostUsd": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "inputHash",
+          "calls",
+          "distinctOutputs",
+          "spanNames",
+          "models",
+          "avgLatencyMs",
+          "totalCostUsd",
+          "firstSeenAt",
+          "lastSeenAt",
+          "promptPreview",
+          "latestUid"
+        ],
+        "type": "object"
+      },
+      "SessionDto": {
+        "properties": {
+          "accessToken": {
+            "description": "Also set as an httpOnly cookie; returned for non-browser clients.",
+            "type": "string"
+          },
+          "expiresAt": {
+            "type": "string"
+          },
+          "organizations": {
+            "items": {
+              "$ref": "#/components/schemas/OrganizationDto"
+            },
+            "type": "array"
+          },
+          "user": {
+            "$ref": "#/components/schemas/UserDto"
+          }
+        },
+        "required": [
+          "user",
+          "organizations",
+          "accessToken",
+          "expiresAt"
+        ],
+        "type": "object"
+      },
+      "SpanDto": {
+        "properties": {
+          "durationMs": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "endedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "errors": {
+            "items": {
+              "$ref": "#/components/schemas/SpanErrorDto"
+            },
+            "type": "array"
+          },
+          "id": {
+            "type": "string"
+          },
+          "input": {},
+          "kind": {
+            "$ref": "#/components/schemas/SpanKind"
+          },
+          "metadata": {
+            "additionalProperties": {},
+            "type": "object"
+          },
+          "model": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "modelParameters": {
+            "anyOf": [
+              {
+                "additionalProperties": {},
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "output": {},
+          "parentId": {
+            "description": "Parent span id, or null for root spans (and spans whose parent never arrived).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "provider": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "startedAt": {
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/TraceStatus"
+          },
+          "uid": {
+            "description": "Server id: stable link target for prompt history and comparisons.",
+            "type": "string"
+          },
+          "usage": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SpanUsageDto"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "uid",
+          "id",
+          "parentId",
+          "name",
+          "kind",
+          "status",
+          "provider",
+          "model",
+          "input",
+          "output",
+          "modelParameters",
+          "metadata",
+          "startedAt",
+          "endedAt",
+          "durationMs",
+          "usage",
+          "errors"
+        ],
+        "type": "object"
+      },
+      "SpanErrorDto": {
+        "properties": {
+          "code": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "httpStatus": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "occurredAt": {
+            "type": "string"
+          },
+          "type": {
+            "$ref": "#/components/schemas/ErrorType"
+          }
+        },
+        "required": [
+          "type",
+          "message",
+          "code",
+          "httpStatus",
+          "occurredAt"
+        ],
+        "type": "object"
+      },
+      "SpanKind": {
+        "enum": [
+          "llm",
+          "tool",
+          "retrieval",
+          "chain",
+          "embedding",
+          "custom"
+        ],
+        "type": "string"
+      },
+      "SpanUsageDto": {
+        "properties": {
+          "cachedInputTokens": {
+            "type": "number"
+          },
+          "estimatedCostUsd": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "inputTokens": {
+            "type": "number"
+          },
+          "outputTokens": {
+            "type": "number"
+          },
+          "reportedCostUsd": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "totalTokens": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "inputTokens",
+          "outputTokens",
+          "cachedInputTokens",
+          "totalTokens",
+          "estimatedCostUsd",
+          "reportedCostUsd"
+        ],
+        "type": "object"
+      },
+      "TimeseriesDto": {
+        "properties": {
+          "bucket": {
+            "$ref": "#/components/schemas/BucketSize"
+          },
+          "points": {
+            "items": {
+              "$ref": "#/components/schemas/TimeseriesPoint"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "bucket",
+          "points"
+        ],
+        "type": "object"
+      },
+      "TimeseriesPoint": {
+        "properties": {
+          "costUsd": {
+            "type": "number"
+          },
+          "errors": {
+            "type": "number"
+          },
+          "inputTokens": {
+            "type": "number"
+          },
+          "outputTokens": {
+            "type": "number"
+          },
+          "p50LatencyMs": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "p95LatencyMs": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "p99LatencyMs": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "requests": {
+            "type": "number"
+          },
+          "t": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "t",
+          "requests",
+          "errors",
+          "inputTokens",
+          "outputTokens",
+          "costUsd",
+          "p50LatencyMs",
+          "p95LatencyMs",
+          "p99LatencyMs"
+        ],
+        "type": "object"
+      },
+      "TraceDetailDto": {
+        "properties": {
+          "errors": {
+            "description": "Errors recorded on the trace itself rather than on a span.",
+            "items": {
+              "$ref": "#/components/schemas/SpanErrorDto"
+            },
+            "type": "array"
+          },
+          "evaluations": {
+            "items": {
+              "$ref": "#/components/schemas/EvaluationDto"
+            },
+            "type": "array"
+          },
+          "spans": {
+            "description": "Ordered by start time.",
+            "items": {
+              "$ref": "#/components/schemas/SpanDto"
+            },
+            "type": "array"
+          },
+          "totals": {
+            "properties": {
+              "costUsd": {
+                "type": "string"
+              },
+              "errors": {
+                "type": "number"
+              },
+              "inputTokens": {
+                "type": "number"
+              },
+              "llmCalls": {
+                "type": "number"
+              },
+              "outputTokens": {
+                "type": "number"
+              },
+              "spans": {
+                "type": "number"
+              },
+              "totalTokens": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "spans",
+              "llmCalls",
+              "inputTokens",
+              "outputTokens",
+              "totalTokens",
+              "costUsd",
+              "errors"
+            ],
+            "type": "object"
+          },
+          "trace": {
+            "properties": {
+              "durationMs": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "endUserId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "endedAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "environment": {
+                "$ref": "#/components/schemas/Environment"
+              },
+              "id": {
+                "type": "string"
+              },
+              "input": {},
+              "isComplete": {
+                "description": "False while spans reference a parent that has not arrived yet.",
+                "type": "boolean"
+              },
+              "isSimulated": {
+                "type": "boolean"
+              },
+              "metadata": {
+                "additionalProperties": {},
+                "type": "object"
+              },
+              "name": {
+                "type": "string"
+              },
+              "output": {},
+              "sessionId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "startedAt": {
+                "type": "string"
+              },
+              "status": {
+                "$ref": "#/components/schemas/TraceStatus"
+              },
+              "tags": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "environment",
+              "status",
+              "startedAt",
+              "endedAt",
+              "durationMs",
+              "endUserId",
+              "sessionId",
+              "tags",
+              "metadata",
+              "input",
+              "output",
+              "isComplete",
+              "isSimulated"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "trace",
+          "totals",
+          "spans",
+          "errors",
+          "evaluations"
+        ],
+        "type": "object"
+      },
+      "TraceListItem": {
+        "properties": {
+          "costUsd": {
+            "type": "string"
+          },
+          "durationMs": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "endUserId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "environment": {
+            "$ref": "#/components/schemas/Environment"
+          },
+          "errorCount": {
+            "type": "number"
+          },
+          "evaluationCount": {
+            "type": "number"
+          },
+          "id": {
+            "type": "string"
+          },
+          "isSimulated": {
+            "type": "boolean"
+          },
+          "llmCalls": {
+            "type": "number"
+          },
+          "models": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "name": {
+            "type": "string"
+          },
+          "sessionId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "spanCount": {
+            "type": "number"
+          },
+          "startedAt": {
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/TraceStatus"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "totalTokens": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "environment",
+          "status",
+          "startedAt",
+          "durationMs",
+          "spanCount",
+          "llmCalls",
+          "totalTokens",
+          "costUsd",
+          "models",
+          "errorCount",
+          "evaluationCount",
+          "endUserId",
+          "sessionId",
+          "tags",
+          "isSimulated"
+        ],
+        "type": "object"
+      },
+      "TraceStatus": {
+        "enum": [
+          "running",
+          "success",
+          "error"
+        ],
+        "type": "string"
+      },
+      "TracesPage": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/TraceListItem"
+            },
+            "type": "array"
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "items",
+          "nextCursor"
+        ],
+        "type": "object"
+      },
+      "UserDto": {
+        "description": "Response contracts of the TraceMind REST API (v1). Dates are ISO-8601 strings on the wire.",
+        "properties": {
+          "createdAt": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "email",
+          "name",
+          "createdAt"
+        ],
+        "type": "object"
+      }
+    }
+  }
+}

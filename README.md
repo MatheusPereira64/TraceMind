@@ -14,7 +14,9 @@ agent (see [Demo](#demo)). Costs are estimated from the providers' published lis
 > **Status:** Phases 1–4 are complete — multi-tenant foundation, telemetry ingestion (REST + OTLP),
 > TypeScript SDK with OpenAI instrumentation, sensitive-data redaction, analytics for usage, latency
 > percentiles, costs and errors, a trace explorer, prompt history and quality evaluations.
-> Production hardening is next. See the [delivery plan](docs/ARCHITECTURE.md#9-delivery-plan).
+> Phase 5 (production readiness) is in progress: data retention, an OpenAPI reference, ingestion
+> load tests and a [deployment guide](docs/DEPLOYMENT.md) are done; members/invitations and
+> LLM-as-a-Judge are next. See the [delivery plan](docs/ARCHITECTURE.md#9-delivery-plan).
 
 ## What you get
 
@@ -54,6 +56,9 @@ Open <http://localhost:3000>, create an account, create a project and generate a
 ```bash
 curl http://localhost:4000/v1/ingest/whoami -H "Authorization: Bearer tm_dev_…"
 ```
+
+The API reference is at <http://localhost:4000/docs> (OpenAPI 3.1 document at `/v1/openapi.json`).
+To run TraceMind on a server with HTTPS, follow the [deployment guide](docs/DEPLOYMENT.md).
 
 ## Demo
 
@@ -108,15 +113,18 @@ pnpm db:migrate
 pnpm dev                                            # API :4000 (watch) + dashboard :3000
 ```
 
-| Command                                     | What it does                                                                                     |
-| ------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| `pnpm test`                                 | Unit and component tests for all packages                                                        |
-| `pnpm --filter @tracemind/api test:e2e`     | API integration tests against real Postgres + Redis (`tracemind_test`), including SDK → API → DB |
-| `pnpm typecheck` / `pnpm lint`              | Type checking and linting across the workspace                                                   |
-| `pnpm db:generate`                          | Generate a SQL migration after changing `apps/api/src/database/schema.ts`                        |
-| `pnpm --filter @tracemind/api pricing:sync` | Load `apps/api/pricing/models.json` and recompute estimated costs                                |
-| `pnpm --filter @tracemind/api demo:seed`    | Create the demo user and 60 days of simulated telemetry                                          |
-| `pnpm build`                                | Production build of every package                                                                |
+| Command                                         | What it does                                                                                     |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `pnpm test`                                     | Unit and component tests for all packages                                                        |
+| `pnpm --filter @tracemind/api test:e2e`         | API integration tests against real Postgres + Redis (`tracemind_test`), including SDK → API → DB |
+| `pnpm typecheck` / `pnpm lint`                  | Type checking and linting across the workspace                                                   |
+| `pnpm db:generate`                              | Generate a SQL migration after changing `apps/api/src/database/schema.ts`                        |
+| `pnpm --filter @tracemind/api pricing:sync`     | Load `apps/api/pricing/models.json` and recompute estimated costs                                |
+| `pnpm --filter @tracemind/api demo:seed`        | Create the demo user and 60 days of simulated telemetry                                          |
+| `pnpm --filter @tracemind/api openapi:generate` | Regenerate `apps/api/openapi/openapi.json` after changing routes, schemas or contracts           |
+| `pnpm --filter @tracemind/api retention:run`    | Delete telemetry older than each project's retention now (it also runs daily)                    |
+| `pnpm --filter @tracemind/api load:ingest`      | Ingestion load test against a running API ([results](apps/api/load/README.md))                   |
+| `pnpm build`                                    | Production build of every package                                                                |
 
 ## Repository layout
 
@@ -125,8 +133,8 @@ apps/api          NestJS API — auth, tenancy, API keys, ingestion queue/worker
 apps/web          Next.js dashboard
 packages/sdk      Zero-dependency TypeScript SDK (traces, spans, OpenAI wrapper, feedback)
 packages/shared   Enums, Zod schemas and API contracts shared by API, dashboard and SDK
-infrastructure    OpenTelemetry Collector and Postgres init config
-docs              Architecture, API contracts and decision records
+infrastructure    OpenTelemetry Collector, Caddy (HTTPS) and Postgres init config
+docs              Architecture, deployment guide and decision records
 ```
 
 ## Design highlights

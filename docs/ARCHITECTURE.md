@@ -114,10 +114,13 @@ erDiagram
 | `evaluation_criteria`                   | Optional definition per criterion name: description, kind, numeric scale or allowed labels; manual scores are validated against it (ADR-008).                                                                                                        |
 | `ingestion_failures`                    | Rejected events and batches that exhausted retries, with the reason (redacted payload), shown in the dashboard.                                                                                                                                      |
 
-**Retention & scale.** A scheduled job (Phase 5) deletes telemetry older than each project's
-`retention_days`. Time-range indexes cover the dashboard queries for the expected MVP volume; if a
-single deployment grows past tens of millions of spans, `traces`/`spans` can be range-partitioned by
-month without changing the API (deferred deliberately — see ADR-005).
+**Retention & scale.** A daily job (BullMQ job scheduler, `RETENTION_CRON`, 03:17 UTC by default)
+deletes traces older than each project's `retention_days`, with their spans, usage, errors and
+evaluations (cascade), plus expired dead-letter rows. It deletes in bounded batches through the
+`(project_id, started_at)` index, so it never holds long locks, and every statement is idempotent;
+`pnpm retention:run` runs it on demand. Time-range indexes cover the dashboard queries for the
+expected MVP volume; if a single deployment grows past tens of millions of spans, `traces`/`spans`
+can be range-partitioned by month without changing the API (deferred deliberately — see ADR-005).
 
 ## 4. Security model
 
@@ -135,7 +138,11 @@ month without changing the API (deferred deliberately — see ADR-005).
 
 ## 5. REST API contracts
 
-Base path `/v1`. Request/response types live in `packages/shared/src/contracts.ts`. Errors always use:
+Base path `/v1`. Request/response types live in `packages/shared`. The full, machine-readable
+description is [`apps/api/openapi/openapi.json`](../apps/api/openapi/openapi.json) (served at
+`/v1/openapi.json`, browsable at `/docs`): request bodies and query parameters are generated from
+the Zod schemas the API validates with, responses from the TypeScript contracts, and tests fail when
+the document drifts from the code or a route is missing from it. Errors always use:
 
 ```json
 {
@@ -188,12 +195,13 @@ Base path `/v1`. Request/response types live in `packages/shared/src/contracts.t
 | `GET /v1/projects/:projectId/evaluations`                  | session | viewer         | Cursor-paginated list; `criterion`, `source`.                           |
 | `GET /v1/projects/:projectId/evaluations/summary`          | session | viewer         | Per criterion: count, average, thumbs split, labels, gap-filled trend.  |
 | `GET /health`, `GET /health/ready`                         | —       | —              | Liveness; readiness checks Postgres and Redis.                          |
+| `GET /v1/openapi.json`, `GET /docs`                        | —       | —              | OpenAPI 3.1 document and the browsable API reference.                   |
 
 ### Planned
 
-| Phase | Endpoints                                                                                                             |
-| ----- | --------------------------------------------------------------------------------------------------------------------- |
-| 5     | Members & invitations, pricing administration, OpenAPI document generated from the Zod schemas, LLM-as-a-Judge runner |
+| Phase | Endpoints                                                            |
+| ----- | -------------------------------------------------------------------- |
+| 5     | Members & invitations, pricing administration, LLM-as-a-Judge runner |
 
 ## 6. Ingestion pipeline
 
@@ -275,13 +283,13 @@ uses the real redaction and persistence code; every trace is `is_simulated` and 
 
 ## 9. Delivery plan
 
-| Phase                    | Scope                                                                                                    | Status  |
-| ------------------------ | -------------------------------------------------------------------------------------------------------- | ------- |
-| 1 · Foundation           | Monorepo, Docker, full schema + migrations, auth, organizations, projects, API keys, dashboard shell, CI | ✅ Done |
-| 2 · Telemetry            | Ingestion API + queue, trace/span persistence, OTLP endpoint, TypeScript SDK, redaction                  | ✅ Done |
-| 3 · Analytics            | Overview metrics, tokens, costs + pricing registry, p50/p95/p99, error monitoring, demo dataset          | ✅ Done |
-| 4 · Developer experience | Trace explorer (span tree/timeline), prompt history and comparison, evaluations, search                  | ✅ Done |
-| 5 · Production readiness | Members/invitations, retention job, OpenAPI, LLM-as-a-Judge, load tests, deployment guide                | Next    |
+| Phase                    | Scope                                                                                                    | Status      |
+| ------------------------ | -------------------------------------------------------------------------------------------------------- | ----------- |
+| 1 · Foundation           | Monorepo, Docker, full schema + migrations, auth, organizations, projects, API keys, dashboard shell, CI | ✅ Done     |
+| 2 · Telemetry            | Ingestion API + queue, trace/span persistence, OTLP endpoint, TypeScript SDK, redaction                  | ✅ Done     |
+| 3 · Analytics            | Overview metrics, tokens, costs + pricing registry, p50/p95/p99, error monitoring, demo dataset          | ✅ Done     |
+| 4 · Developer experience | Trace explorer (span tree/timeline), prompt history and comparison, evaluations, search                  | ✅ Done     |
+| 5 · Production readiness | Retention job, OpenAPI, load tests, deployment guide ✅ · members/invitations, LLM-as-a-Judge            | In progress |
 
 Navigation items in the dashboard appear as each section ships, rather than as empty placeholders.
 

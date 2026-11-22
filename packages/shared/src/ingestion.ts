@@ -189,7 +189,22 @@ export const redactionSettingsSchema = z.object({
    */
   literals: z.array(z.string().min(3).max(200)).max(50),
 });
-export type RedactionSettings = z.infer<typeof redactionSettingsSchema>;
+/**
+ * Declared as an interface (not `z.infer`) so API contracts that embed it can be turned into
+ * OpenAPI schemas; the assertion below keeps it identical to the Zod schema.
+ */
+export interface RedactionSettings {
+  enabled: boolean;
+  maskEmails: boolean;
+  maskPhoneNumbers: boolean;
+  literals: string[];
+}
+type Same<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;
+const redactionSettingsMatchesSchema: Same<
+  RedactionSettings,
+  z.infer<typeof redactionSettingsSchema>
+> = true;
+void redactionSettingsMatchesSchema;
 
 export const DEFAULT_REDACTION_SETTINGS: RedactionSettings = {
   enabled: true,

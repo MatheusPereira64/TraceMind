@@ -15,3 +15,5 @@ process.env.AUTH_RATE_LIMIT_PER_MINUTE = '1000';
 process.env.INGESTION_RETRY_DELAY_MS = '20';
 process.env.INGEST_RATE_LIMIT_PER_MINUTE = '10000';
 process.env.ANALYTICS_CACHE_TTL_SECONDS = '0';
+// Specs seed telemetry at fixed dates; the scheduled retention job must never delete it mid-run.
+process.env.RETENTION_ENABLED = 'false';
