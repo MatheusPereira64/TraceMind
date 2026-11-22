@@ -51,6 +51,17 @@ export const envSchema = z.object({
   /** Back-pressure: above this many waiting batches, ingestion answers 503 + Retry-After. */
   INGESTION_MAX_QUEUED_BATCHES: z.coerce.number().int().min(10).default(10_000),
   AUTH_RATE_LIMIT_PER_MINUTE: z.coerce.number().int().min(1).default(10),
+
+  /** Schedule the retention job (deletes telemetry older than each project's retention). */
+  RETENTION_ENABLED: booleanFromString.default(true),
+  /** Cron pattern, evaluated in UTC. Default: every day at 03:17. */
+  RETENTION_CRON: z
+    .string()
+    .trim()
+    .regex(/^(\S+\s+){4}\S+$/, 'RETENTION_CRON must be a 5-field cron pattern')
+    .default('17 3 * * *'),
+  /** Rows deleted per statement by the retention job. */
+  RETENTION_BATCH_SIZE: z.coerce.number().int().min(1).max(50_000).default(1_000),
 });
 
 export type Env = z.infer<typeof envSchema>;

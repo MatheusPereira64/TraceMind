@@ -19,6 +19,8 @@
     "db:studio": "drizzle-kit studio",
     "pricing:sync": "node --import tsx src/pricing/sync.ts",
     "pricing:sync:prod": "node dist/pricing/sync.js",
+    "retention:run": "node --import tsx src/retention/run.ts",
+    "retention:run:prod": "node dist/retention/run.js",
     "demo:seed": "node --import tsx src/demo/seed-demo.ts",
     "demo:seed:prod": "node dist/demo/seed-demo.js"
   },

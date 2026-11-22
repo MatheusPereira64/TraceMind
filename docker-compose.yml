@@ -72,6 +72,8 @@ services:
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
       TRUST_PROXY: ${TRUST_PROXY:-false}
       INGESTION_CONCURRENCY: ${INGESTION_CONCURRENCY:-4}
+      RETENTION_ENABLED: ${RETENTION_ENABLED:-true}
+      RETENTION_CRON: '${RETENTION_CRON:-17 3 * * *}'
     ports:
       - '${API_PORT:-4000}:4000'
     depends_on:
