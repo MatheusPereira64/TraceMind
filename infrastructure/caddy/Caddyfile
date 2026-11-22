@@ -1,0 +1,35 @@
+# TraceMind behind Caddy: automatic HTTPS (Let's Encrypt) for one domain.
+#
+#   https://$TRACEMIND_DOMAIN/            dashboard (Next.js)
+#   https://$TRACEMIND_DOMAIN/v1/*        API: ingestion (SDK, OTLP/HTTP) and REST
+#   https://$TRACEMIND_DOMAIN/docs        API reference
+#   https://$TRACEMIND_DOMAIN/health*     health checks
+#
+# Caddy replaces any X-Forwarded-For sent by the client with the real client address, which is
+# what lets the API run with TRUST_PROXY=true.
+{
+	email {$ACME_EMAIL}
+}
+
+{$TRACEMIND_DOMAIN} {
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		-Server
+	}
+
+	@api path /v1/* /docs /health /health/*
+	handle @api {
+		reverse_proxy api:4000
+	}
+
+	handle {
+		reverse_proxy web:3000
+	}
+
+	log {
+		output stdout
+		format json
+	}
+}
