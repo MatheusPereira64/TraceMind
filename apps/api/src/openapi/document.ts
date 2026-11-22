@@ -88,6 +88,7 @@ function errorStatuses(operation: Operation): number[] {
   const statuses = new Set<number>();
   if (operation.body || operation.query || operation.uuidParams?.length) statuses.add(400);
   if (operation.auth !== 'public') statuses.add(401);
+  if (operation.operationId === 'register') statuses.add(403);
   if (operation.role) {
     statuses.add(403);
     statuses.add(404);

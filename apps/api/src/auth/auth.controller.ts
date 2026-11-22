@@ -1,4 +1,13 @@
-import { Body, Controller, Get, HttpCode, Inject, Post, Res } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  ForbiddenException,
+  Get,
+  HttpCode,
+  Inject,
+  Post,
+  Res,
+} from '@nestjs/common';
 import {
   loginSchema,
   registerSchema,
@@ -28,6 +37,9 @@ export class AuthController {
     @Body(new ZodValidationPipe(registerSchema)) body: RegisterInput,
     @Res({ passthrough: true }) response: Response,
   ): Promise<SessionDto> {
+    if (!this.env.REGISTRATION_ENABLED) {
+      throw new ForbiddenException('Registration is disabled on this server');
+    }
     const session = await this.auth.register(body);
     this.setSessionCookie(response, session.accessToken);
     return session;

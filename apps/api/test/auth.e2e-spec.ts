@@ -125,4 +125,30 @@ describe('Auth (e2e)', () => {
     const response = await request(app.getHttpServer()).get('/health/ready').expect(200);
     expect(response.body.checks).toEqual({ database: 'up', redis: 'up' });
   });
+
+  it('refuses new accounts when registration is disabled', async () => {
+    process.env.REGISTRATION_ENABLED = 'false';
+    const closed = await createTestApp();
+    try {
+      const response = await request(closed.getHttpServer())
+        .post('/v1/auth/register')
+        .send({
+          name: 'Nobody',
+          email: uniqueEmail('closed'),
+          password: 'a-very-strong-password',
+          organizationName: 'Closed Org',
+        })
+        .expect(403);
+      expect(response.body.message).toBe('Registration is disabled on this server');
+      // Existing accounts can still sign in.
+      const existing = await registerUser(app);
+      await request(closed.getHttpServer())
+        .post('/v1/auth/login')
+        .send({ email: existing.user.email, password: existing.password })
+        .expect(200);
+    } finally {
+      delete process.env.REGISTRATION_ENABLED;
+      await closed.close();
+    }
+  });
 });

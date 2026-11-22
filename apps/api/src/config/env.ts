@@ -52,6 +52,12 @@ export const envSchema = z.object({
   INGESTION_MAX_QUEUED_BATCHES: z.coerce.number().int().min(10).default(10_000),
   AUTH_RATE_LIMIT_PER_MINUTE: z.coerce.number().int().min(1).default(10),
 
+  /**
+   * Allow anyone who can reach the API to create an account. Turn off on a public deployment once
+   * the first account exists.
+   */
+  REGISTRATION_ENABLED: booleanFromString.default(true),
+
   /** Schedule the retention job (deletes telemetry older than each project's retention). */
   RETENTION_ENABLED: booleanFromString.default(true),
   /** Cron pattern, evaluated in UTC. Default: every day at 03:17. */

@@ -113,7 +113,9 @@ export const OPERATIONS: Operation[] = [
     operationId: 'register',
     tag: 'Auth',
     summary: 'Create an account and its first organization',
-    description: 'Sets the httpOnly session cookie and also returns the token for scripts.',
+    description:
+      'Sets the httpOnly session cookie and also returns the token for scripts. Answers 403 when ' +
+      'the server runs with `REGISTRATION_ENABLED=false`.',
     auth: 'public',
     body: registerSchema,
     status: 201,

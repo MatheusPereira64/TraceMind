@@ -133,7 +133,7 @@
           "Auth"
         ],
         "summary": "Create an account and its first organization",
-        "description": "Sets the httpOnly session cookie and also returns the token for scripts.",
+        "description": "Sets the httpOnly session cookie and also returns the token for scripts. Answers 403 when the server runs with `REGISTRATION_ENABLED=false`.",
         "requestBody": {
           "required": true,
           "content": {
@@ -184,6 +184,9 @@
           },
           "400": {
             "$ref": "#/components/responses/Error400"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
           },
           "413": {
             "$ref": "#/components/responses/Error413"
